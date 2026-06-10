@@ -1,26 +1,54 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #131517;
+  --surface: #1a1d20;
+  --surface-raised: #202428;
+  --border: #2a2f34;
+  --border-strong: #3a4046;
+  --foreground: #e8eaec;
+  --muted: #9aa3ab;
+  --faint: #6b7480;
+  --accent: #c9a96a; /* restrained brass */
+  --positive: #4fae7c;
+  --negative: #d4655f;
+  --warning: #d9a441;
+  --critical: #c44b45;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-raised: var(--surface-raised);
+  --color-edge: var(--border);
+  --color-edge-strong: var(--border-strong);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning: var(--warning);
+  --color-critical: var(--critical);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(201, 169, 106, 0.25);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
 }

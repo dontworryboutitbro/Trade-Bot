@@ -1,0 +1,8 @@
+{
+  "crons": [
+    { "path": "/api/cron/evaluate", "schedule": "30 15 * * 1-5" },
+    { "path": "/api/cron/snapshot", "schedule": "10 21 * * 1-5" },
+    { "path": "/api/cron/reconcile", "schedule": "0 14-21 * * 1-5" },
+    { "path": "/api/cron/health", "schedule": "30 13 * * 1-5" }
+  ]
+}
