@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ApprovalList } from "@/components/approval-list";
+import { Autopilot } from "@/components/autopilot";
 import { EmergencyControls } from "@/components/emergency-controls";
 import { EquityChart } from "@/components/equity-chart";
 import { Badge, Card, Empty, Stat, Td, Th, plTone } from "@/components/ui";
@@ -54,6 +55,8 @@ export default async function OverviewPage() {
           sub={excess === null ? undefined : excess >= 0 ? "Outperforming" : "Underperforming"}
         />
       </div>
+
+      {settings.tradingMode !== "LIVE_LOCKED" && <Autopilot mode={settings.tradingMode} />}
 
       <Card title="Equity">
         <EquityChart
