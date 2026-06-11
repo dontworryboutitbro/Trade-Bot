@@ -186,6 +186,7 @@ export class SupabaseStore implements Store {
           min_share_price: next.minSharePrice,
           max_live_funded_balance: next.maxLiveFundedBalance,
           market_hours_only: next.marketHoursOnly,
+          allow_crypto: next.allowCrypto,
           updated_at: new Date().toISOString(),
         })
         .eq("id", current.id),
