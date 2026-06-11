@@ -155,6 +155,20 @@ export interface TradeProposal {
   expiresAt: string;
   status: ProposalStatus;
   createdAt: string;
+  /** Optional protective stop for BUY proposals, as % below entry (0.2–50). */
+  stopLossPct?: number | null;
+}
+
+export interface StopRule {
+  id: string;
+  environment: Environment;
+  symbol: string;
+  quantity: number;
+  entryPrice: number;
+  stopPrice: number;
+  sourceProposalId: string | null;
+  status: "ACTIVE" | "TRIGGERED" | "CANCELED";
+  createdAt: string;
 }
 
 export interface RiskCheckResult {

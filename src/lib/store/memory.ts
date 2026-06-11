@@ -9,6 +9,7 @@ import type {
   Environment,
   ProposalStatus,
   RiskLimits,
+  StopRule,
 } from "@/lib/types";
 import { defaultLimitsFor } from "@/lib/risk/defaults";
 import { SEED_SYMBOLS } from "@/lib/config";
@@ -39,6 +40,7 @@ interface MemoryData {
   auditEvents: AuditEventRow[];
   cronRuns: CronRunRow[];
   healthChecks: HealthCheckRow[];
+  stopRules: StopRule[];
 }
 
 function daysAgo(n: number, hour = 21): string {
@@ -313,6 +315,7 @@ function seedData(): MemoryData {
     auditEvents,
     cronRuns: [],
     healthChecks: [],
+    stopRules: [],
   };
 }
 
@@ -481,6 +484,26 @@ export class MemoryStore implements Store {
         o.side === side &&
         ["NEW", "SUBMITTED", "ACCEPTED", "PARTIALLY_FILLED"].includes(o.status),
     );
+  }
+
+  async createStopRule(rule: Omit<StopRule, "id" | "createdAt" | "status">) {
+    data().stopRules.unshift({
+      id: randomUUID(),
+      ...rule,
+      status: "ACTIVE",
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async listActiveStopRules(environment: Environment) {
+    return data()
+      .stopRules.filter((r) => r.environment === environment && r.status === "ACTIVE")
+      .map((r) => ({ ...r }));
+  }
+
+  async updateStopRuleStatus(id: string, status: StopRule["status"]) {
+    const rule = data().stopRules.find((r) => r.id === id);
+    if (rule) rule.status = status;
   }
 
   async saveSnapshot(snapshot: Omit<PortfolioSnapshotRow, "id">) {

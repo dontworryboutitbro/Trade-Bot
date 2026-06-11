@@ -7,6 +7,7 @@ import type {
   RiskEvaluation,
   RiskLimits,
   Severity,
+  StopRule,
   TradeAction,
   TradeProposal,
 } from "@/lib/types";
@@ -122,6 +123,7 @@ export interface NewProposalInput {
   keyRisk: string;
   expiresAt: string;
   status: ProposalStatus;
+  stopLossPct?: number | null;
 }
 
 /**
@@ -187,6 +189,11 @@ export interface Store {
     symbol: string,
     side: "buy" | "sell",
   ): Promise<boolean>;
+
+  // stop rules
+  createStopRule(rule: Omit<StopRule, "id" | "createdAt" | "status">): Promise<void>;
+  listActiveStopRules(environment: Environment): Promise<StopRule[]>;
+  updateStopRuleStatus(id: string, status: StopRule["status"]): Promise<void>;
 
   // snapshots
   saveSnapshot(snapshot: Omit<PortfolioSnapshotRow, "id">): Promise<void>;

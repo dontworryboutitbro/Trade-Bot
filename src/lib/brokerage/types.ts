@@ -34,5 +34,6 @@ export interface MarketDataClient {
   getQuote(symbol: string): Promise<Quote | null>;
   getQuotes(symbols: string[]): Promise<Quote[]>;
   getDailyBars(symbol: string, days: number): Promise<Bar[]>;
+  getHourlyBars(symbol: string, hours: number): Promise<Bar[]>;
   getMarketClock(): Promise<MarketClock>;
 }

@@ -301,6 +301,29 @@ export class MockMarketDataClient implements MarketDataClient {
     return bars;
   }
 
+  async getHourlyBars(symbol: string, hours: number): Promise<Bar[]> {
+    const base = BASE_PRICES[symbol];
+    if (!base) return [];
+    const bars: Bar[] = [];
+    let price = base * 0.99;
+    for (let i = hours; i >= 1; i--) {
+      const date = new Date(Date.now() - i * 3600_000);
+      const drift = seededDrift(symbol, `${date.toISOString().slice(0, 13)}h`);
+      const open = price;
+      price = price * (1 + drift * 0.3);
+      bars.push({
+        symbol,
+        timestamp: date.toISOString(),
+        open,
+        high: Math.max(open, price) * 1.002,
+        low: Math.min(open, price) * 0.998,
+        close: price,
+        volume: 1_000_000,
+      });
+    }
+    return bars;
+  }
+
   async getMarketClock(): Promise<MarketClock> {
     // Approximate US regular hours: 9:30–16:00 ET, Mon–Fri.
     const now = new Date();

@@ -176,6 +176,7 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
     ]);
 
   const recentBars: AiContext["recentBars"] = {};
+  const hourlyBars: AiContext["hourlyBars"] = {};
   // Bars for held symbols + benchmark + a few candidates (keep prompt small).
   const barSymbols = Array.from(
     new Set([
@@ -184,15 +185,26 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
       ...activeSymbols.slice(0, 8),
     ]),
   ).slice(0, 12);
-  await Promise.all(
-    barSymbols.map(async (symbol) => {
+  const cryptoSymbols = approvedSymbols
+    .filter((s) => s.active && s.assetClass === "crypto")
+    .map((s) => s.symbol)
+    .slice(0, 10);
+  await Promise.all([
+    ...barSymbols.map(async (symbol) => {
       try {
         recentBars[symbol] = await marketData.getDailyBars(symbol, 30);
       } catch {
         recentBars[symbol] = [];
       }
     }),
-  );
+    ...cryptoSymbols.map(async (symbol) => {
+      try {
+        hourlyBars[symbol] = await marketData.getHourlyBars(symbol, 24);
+      } catch {
+        hourlyBars[symbol] = [];
+      }
+    }),
+  ]);
 
   const aiContext: AiContext = {
     mode,
@@ -203,6 +215,7 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
     approvedSymbols,
     quotes,
     recentBars,
+    hourlyBars,
     limits,
     marketClock,
   };
@@ -273,6 +286,7 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
       keyRisk: action.key_risk,
       expiresAt,
       status: "PENDING_RISK",
+      stopLossPct: action.action === "BUY" ? action.stop_loss_pct : null,
     });
     result.proposalsCreated++;
 
@@ -333,6 +347,33 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
   }
 
   return result;
+}
+
+async function maybeCreateStopRule(
+  store: Store,
+  proposal: StoredProposal,
+  entryPrice: number | null,
+): Promise<void> {
+  if (proposal.action !== "BUY" || !proposal.stopLossPct || !entryPrice || entryPrice <= 0) return;
+  const stopPrice = entryPrice * (1 - proposal.stopLossPct / 100);
+  await store.createStopRule({
+    environment: proposal.environment,
+    symbol: proposal.symbol,
+    quantity: proposal.quantity,
+    entryPrice,
+    stopPrice,
+    sourceProposalId: proposal.id,
+  });
+  await audit({
+    actorType: "SYSTEM",
+    actorId: null,
+    action: "STOP_RULE_CREATED",
+    entityType: "trade_proposal",
+    entityId: proposal.id,
+    severity: "INFO",
+    summary: `Stop-loss armed for ${proposal.symbol}: exit ${proposal.quantity} if price ≤ $${stopPrice.toFixed(2)} (${proposal.stopLossPct}% below entry $${entryPrice.toFixed(2)}).`,
+    metadata: {},
+  });
 }
 
 export interface ExecutionOutcome {
@@ -462,6 +503,7 @@ export async function executeProposal(
     });
 
     await store.updateProposalStatus(proposal.id, "EXECUTED");
+    await maybeCreateStopRule(store, proposal, submitted.filledAvgPrice ?? ctx.quote?.price ?? null);
     await audit({
       actorType: "SYSTEM",
       actorId: actor,
@@ -596,6 +638,86 @@ export async function reconcileOrders(actor: string): Promise<{ updated: number 
     }
   }
   return { updated };
+}
+
+/**
+ * Stop-loss monitor. For each active stop rule, if the current price has
+ * fallen to or below the stop price, create an EXIT proposal and run it
+ * through the FULL risk engine + execution pipeline (auto-executes in
+ * autonomous modes; queues for approval in manual modes). Called from the
+ * reconcile cron and the Autopilot tick.
+ */
+export async function checkStopRules(actor: string): Promise<{ triggered: number }> {
+  const store = await getStore();
+  const settings = await store.getSettings();
+  const mode = settings.tradingMode;
+  const environment = modeToEnvironment(mode);
+  if (settings.globalKillSwitch || mode === "LIVE_LOCKED") return { triggered: 0 };
+
+  const rules = await store.listActiveStopRules(environment);
+  if (rules.length === 0) return { triggered: 0 };
+
+  const brokerage = getBrokerageClient(mode);
+  const marketData = getMarketDataClient(mode);
+  const positions = await brokerage.getPositions();
+  let triggered = 0;
+
+  for (const rule of rules) {
+    const held = positions.find((p) => p.symbol === rule.symbol);
+    if (!held || held.quantity <= 0) {
+      // Position already gone (sold or exited elsewhere) — retire the stop.
+      await store.updateStopRuleStatus(rule.id, "CANCELED");
+      continue;
+    }
+    let price: number | null = null;
+    try {
+      price = (await marketData.getQuote(rule.symbol))?.price ?? null;
+    } catch {
+      continue; // no fresh quote — never act on stale data
+    }
+    if (price === null || price > rule.stopPrice) continue;
+
+    const quantity = Math.min(rule.quantity, held.quantity);
+    const proposal = await store.createProposal({
+      environment,
+      symbol: rule.symbol,
+      action: "EXIT",
+      quantity,
+      proposedNotional: price * quantity,
+      orderType: "MARKET",
+      limitPrice: null,
+      confidence: 100,
+      conciseReasoning: `Stop-loss triggered: ${rule.symbol} fell to $${price.toFixed(2)}, at or below the $${rule.stopPrice.toFixed(2)} stop (${((1 - rule.stopPrice / rule.entryPrice) * 100).toFixed(1)}% below entry $${rule.entryPrice.toFixed(2)}).`,
+      keyRisk: "Exit fills at market; price may differ from the stop level.",
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      status: "PENDING_RISK",
+      stopLossPct: null,
+    });
+    await store.updateStopRuleStatus(rule.id, "TRIGGERED");
+    await alert({
+      notificationType: "STOP_LOSS_TRIGGERED",
+      severity: "WARNING",
+      title: `Stop-loss triggered: ${rule.symbol}`,
+      message: `Price $${price.toFixed(2)} breached the $${rule.stopPrice.toFixed(2)} stop. Exiting ${quantity}.`,
+    });
+
+    const ctx = await buildRiskContext(store, proposal, mode);
+    const evaluation = evaluateRisk(ctx);
+    await persistEvaluation(store, proposal.id, ctx, evaluation);
+    if (evaluation.overallResult === "BLOCK") {
+      await store.updateProposalStatus(proposal.id, "BLOCKED");
+      continue;
+    }
+    if (isAutonomousMode(mode)) {
+      await store.updateProposalStatus(proposal.id, "QUEUED");
+      const outcome = await executeProposal(proposal.id, actor);
+      if (outcome.executed) triggered++;
+    } else {
+      await store.updateProposalStatus(proposal.id, "AWAITING_APPROVAL");
+      triggered++;
+    }
+  }
+  return { triggered };
 }
 
 /** Capture a portfolio snapshot incl. SPY benchmark for the current environment. */

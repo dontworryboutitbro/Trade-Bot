@@ -3,6 +3,7 @@ import { adminRoute } from "@/lib/api";
 import { audit } from "@/lib/services";
 import {
   captureSnapshot,
+  checkStopRules,
   expireProposals,
   reconcileOrders,
   runAiEvaluation,
@@ -43,7 +44,8 @@ export const POST = adminRoute(
       case "RECONCILE_ORDERS": {
         const expired = await expireProposals();
         const { updated } = await reconcileOrders(user.email);
-        return { result: { expired, updated } };
+        const stops = await checkStopRules(user.email);
+        return { result: { expired, updated, stopsTriggered: stops.triggered } };
       }
       case "CAPTURE_SNAPSHOT":
         return { result: await captureSnapshot() };

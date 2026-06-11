@@ -31,7 +31,7 @@ vi.mock("@/lib/brokerage/factory", async () => {
 
 import { resetMemoryStore, MemoryStore } from "@/lib/store/memory";
 import { resetMockState, MockBrokerageClient } from "@/lib/brokerage/mock";
-import { runAiEvaluation, executeProposal } from "@/lib/trading/pipeline";
+import { runAiEvaluation, executeProposal, checkStopRules } from "@/lib/trading/pipeline";
 import {
   changeTradingMode,
   decideProposal,
@@ -246,6 +246,57 @@ describe("execution idempotency", () => {
     expect(second.executed).toBe(false);
     const orders = await store.listOrders({ environment: "MOCK" });
     expect(orders.filter((o) => o.proposalId === id)).toHaveLength(1);
+  });
+});
+
+describe("stop-loss flow", () => {
+  it("a breached stop creates and executes an EXIT through the risk engine", async () => {
+    // Mock store holds SPY; arm a stop above the current mock price so it
+    // triggers immediately on the next check.
+    await store.createStopRule({
+      environment: "MOCK",
+      symbol: "SPY",
+      quantity: 1,
+      entryPrice: 700,
+      stopPrice: 650, // mock SPY trades ~612 → breached
+      sourceProposalId: null,
+    });
+    // MOCK is a manual mode: the exit should queue for approval, not execute.
+    const result = await checkStopRules("test");
+    expect(result.triggered).toBe(1);
+    const pending = await store.listProposals({ statuses: ["AWAITING_APPROVAL"] });
+    const exit = pending.find((p) => p.action === "EXIT" && p.symbol === "SPY");
+    expect(exit).toBeDefined();
+    expect(exit!.conciseReasoning).toContain("Stop-loss triggered");
+    // Rule is retired; a second check must not duplicate the exit.
+    const again = await checkStopRules("test");
+    expect(again.triggered).toBe(0);
+    const alerts = await store.listNotifications(10);
+    expect(alerts.some((n) => n.notificationType === "STOP_LOSS_TRIGGERED")).toBe(true);
+  });
+
+  it("stops are canceled when the position is already gone", async () => {
+    await store.createStopRule({
+      environment: "MOCK",
+      symbol: "XLF", // not held in mock seed
+      quantity: 1,
+      entryPrice: 60,
+      stopPrice: 55,
+      sourceProposalId: null,
+    });
+    const result = await checkStopRules("test");
+    expect(result.triggered).toBe(0);
+    expect(await store.listActiveStopRules("MOCK")).toHaveLength(0);
+  });
+
+  it("a BUY with stop_loss_pct arms a stop rule after execution", async () => {
+    await runAiEvaluation("test");
+    const proposals = await store.listProposals({ statuses: ["AWAITING_APPROVAL"] });
+    if (proposals.length === 0) return;
+    expect(proposals[0].stopLossPct).toBe(5); // mock engine sets 5%
+    await decideProposal("tester", proposals[0].id, "APPROVED", null);
+    const rules = await store.listActiveStopRules("MOCK");
+    expect(rules.some((r) => r.symbol === proposals[0].symbol)).toBe(true);
   });
 });
 

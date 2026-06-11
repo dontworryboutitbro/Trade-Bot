@@ -19,6 +19,8 @@ export const aiActionSchema = z
     confidence: z.number().min(0).max(100),
     concise_reasoning: z.string().min(1).max(500),
     key_risk: z.string().min(1).max(250),
+    /** Optional protective stop for BUY actions, % below entry. */
+    stop_loss_pct: z.number().min(0.2).max(50).nullable().default(null),
     expiration_timestamp: z.string().datetime({ offset: true }).or(z.string().datetime()),
   })
   .strict();

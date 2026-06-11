@@ -10,6 +10,7 @@ import type {
   Environment,
   ProposalStatus,
   RiskLimits,
+  StopRule,
 } from "@/lib/types";
 import { getSupabaseAdminClient } from "@/lib/supabase/server";
 import type {
@@ -45,6 +46,7 @@ function mapProposal(row: any): StoredProposal {
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    stopLossPct: row.stop_loss_pct === null ? null : Number(row.stop_loss_pct),
   };
 }
 
@@ -269,6 +271,7 @@ export class SupabaseStore implements Store {
           key_risk: input.keyRisk,
           expires_at: input.expiresAt,
           status: input.status,
+          stop_loss_pct: input.stopLossPct ?? null,
         })
         .select()
         .single(),
@@ -475,6 +478,49 @@ export class SupabaseStore implements Store {
       .in("status", OPEN_ORDER_STATUSES);
     if (error) throw new Error(`Supabase error: ${error.message}`);
     return (count ?? 0) > 0;
+  }
+
+  async createStopRule(rule: Omit<StopRule, "id" | "createdAt" | "status">): Promise<void> {
+    await this.run(
+      this.db.from("position_stops").insert({
+        environment: rule.environment,
+        symbol: rule.symbol,
+        quantity: rule.quantity,
+        entry_price: rule.entryPrice,
+        stop_price: rule.stopPrice,
+        source_proposal_id: rule.sourceProposalId,
+      }),
+    );
+  }
+
+  async listActiveStopRules(environment: Environment): Promise<StopRule[]> {
+    const rows = await this.many<any>(
+      this.db
+        .from("position_stops")
+        .select("*")
+        .eq("environment", environment)
+        .eq("status", "ACTIVE"),
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      environment: row.environment,
+      symbol: row.symbol,
+      quantity: Number(row.quantity),
+      entryPrice: Number(row.entry_price),
+      stopPrice: Number(row.stop_price),
+      sourceProposalId: row.source_proposal_id,
+      status: row.status,
+      createdAt: row.created_at,
+    }));
+  }
+
+  async updateStopRuleStatus(id: string, status: StopRule["status"]): Promise<void> {
+    await this.run(
+      this.db
+        .from("position_stops")
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async saveSnapshot(snapshot: Omit<PortfolioSnapshotRow, "id">): Promise<void> {

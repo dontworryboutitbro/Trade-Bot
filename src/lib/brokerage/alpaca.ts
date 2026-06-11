@@ -287,6 +287,29 @@ export class AlpacaMarketDataClient implements MarketDataClient {
     }));
   }
 
+  async getHourlyBars(symbol: string, hours: number): Promise<Bar[]> {
+    const start = new Date(Date.now() - hours * 3600_000);
+    const mapBar = (b: any): Bar => ({
+      symbol,
+      timestamp: b.t,
+      open: Number(b.o),
+      high: Number(b.h),
+      low: Number(b.l),
+      close: Number(b.c),
+      volume: Number(b.v),
+    });
+    if (symbol.includes("/")) {
+      const raw = await this.request<any>(
+        `/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(symbol)}&timeframe=1Hour&start=${start.toISOString()}&limit=${hours + 5}`,
+      );
+      return (raw.bars?.[symbol] ?? []).map(mapBar);
+    }
+    const raw = await this.request<any>(
+      `/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=1Hour&start=${start.toISOString()}&limit=${hours + 5}&feed=iex`,
+    );
+    return (raw.bars ?? []).map(mapBar);
+  }
+
   async getMarketClock(): Promise<MarketClock> {
     const raw = await this.request<any>("/v2/clock", this.creds.baseUrl);
     return {
