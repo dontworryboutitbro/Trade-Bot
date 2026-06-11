@@ -4,13 +4,60 @@ import { fmtDateTime, fmtPct, fmtUsd } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function PositionsPage() {
-  const { positions, account, orders, proposals, brokerageError } = await getPositionsData();
+const TABS = [
+  { key: "all", label: "All" },
+  { key: "stocks", label: "Stocks & ETFs" },
+  { key: "crypto", label: "Crypto" },
+] as const;
+
+export default async function PositionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ class?: string }>;
+}) {
+  const params = await searchParams;
+  const tab = TABS.find((t) => t.key === params.class)?.key ?? "all";
+  const data = await getPositionsData();
+  const { account, orders, proposals, brokerageError } = data;
+  const isCrypto = (symbol: string) => symbol.includes("/");
+  const positions = data.positions.filter((p) =>
+    tab === "all" ? true : tab === "crypto" ? isCrypto(p.symbol) : !isCrypto(p.symbol),
+  );
   const equity = account?.equity ?? 0;
+  const groupValue = positions.reduce((sum, p) => sum + p.marketValue, 0);
+  const groupPl = positions.reduce((sum, p) => sum + p.unrealizedPl, 0);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <h1 className="text-lg font-semibold">Positions</h1>
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="mr-4 text-lg font-semibold">Positions</h1>
+        {TABS.map((t) => {
+          const count = data.positions.filter((p) =>
+            t.key === "all" ? true : t.key === "crypto" ? isCrypto(p.symbol) : !isCrypto(p.symbol),
+          ).length;
+          return (
+            <a
+              key={t.key}
+              href={`/positions?class=${t.key}`}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                t.key === tab
+                  ? "border-accent/60 bg-accent/10 text-accent"
+                  : "border-edge text-muted hover:text-foreground"
+              }`}
+            >
+              {t.label} ({count})
+            </a>
+          );
+        })}
+        {tab !== "all" && positions.length > 0 && (
+          <span className="ml-auto text-sm text-muted">
+            Group value <span className="tabular text-foreground">{fmtUsd(groupValue)}</span> · P/L{" "}
+            <span className={`tabular ${groupPl >= 0 ? "text-positive" : "text-negative"}`}>
+              {fmtUsd(groupPl)}
+            </span>
+          </span>
+        )}
+      </div>
       {brokerageError && (
         <div className="rounded-md border border-warning/50 bg-warning/10 px-4 py-3 text-sm text-warning">
           Brokerage unavailable: {brokerageError}
@@ -19,7 +66,13 @@ export default async function PositionsPage() {
 
       <Card>
         {positions.length === 0 ? (
-          <Empty>No open positions.</Empty>
+          <Empty>
+            {tab === "crypto"
+              ? "No crypto positions yet."
+              : tab === "stocks"
+                ? "No stock/ETF positions yet."
+                : "No open positions."}
+          </Empty>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px]">
