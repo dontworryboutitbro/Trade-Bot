@@ -455,11 +455,16 @@ export class MemoryStore implements Store {
     return list.slice(0, filter?.limit ?? 100).map((o) => ({ ...o }));
   }
 
-  async countExecutedTradesToday(environment: Environment, dayStartIso: string) {
+  async countExecutedTradesToday(
+    environment: Environment,
+    dayStartIso: string,
+    kind: "equity" | "crypto",
+  ) {
     return data().orders.filter(
       (o) =>
         o.environment === environment &&
         o.submittedAt >= dayStartIso &&
+        (kind === "crypto") === o.symbol.includes("/") &&
         ["FILLED", "PARTIALLY_FILLED", "SUBMITTED", "ACCEPTED"].includes(o.status),
     ).length;
   }

@@ -51,13 +51,19 @@ async function buildRiskContext(
     store.getRiskLimits(environment),
   ]);
 
-  const [executedTradesToday, hasEquivalentPendingOrder, proposalAlreadyExecuted, snapshots] =
-    await Promise.all([
-      store.countExecutedTradesToday(environment, marketDayStartIso()),
-      store.hasOpenEquivalentOrder(environment, proposal.symbol, sideOf(proposal.action)),
-      store.hasOrderForProposal(proposal.id),
-      store.listSnapshots(environment, 90),
-    ]);
+  const [
+    executedTradesToday,
+    executedCryptoTradesToday,
+    hasEquivalentPendingOrder,
+    proposalAlreadyExecuted,
+    snapshots,
+  ] = await Promise.all([
+    store.countExecutedTradesToday(environment, marketDayStartIso(), "equity"),
+    store.countExecutedTradesToday(environment, marketDayStartIso(), "crypto"),
+    store.hasOpenEquivalentOrder(environment, proposal.symbol, sideOf(proposal.action)),
+    store.hasOrderForProposal(proposal.id),
+    store.listSnapshots(environment, 90),
+  ]);
 
   const lastSnapshot = snapshots[snapshots.length - 1];
   const peak = snapshots.reduce((max, s) => Math.max(max, s.equity), account.equity);
@@ -78,6 +84,7 @@ async function buildRiskContext(
     globalKillSwitch: settings.globalKillSwitch,
     stopNewOrders: settings.stopNewOrders,
     executedTradesToday,
+    executedCryptoTradesToday,
     dailyReturnPct,
     drawdownPct,
     hasEquivalentPendingOrder,

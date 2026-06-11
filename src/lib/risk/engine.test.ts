@@ -136,6 +136,7 @@ function ctx(overrides: Partial<RiskContext> = {}): RiskContext {
     globalKillSwitch: false,
     stopNewOrders: false,
     executedTradesToday: 0,
+    executedCryptoTradesToday: 0,
     dailyReturnPct: 0,
     drawdownPct: 0,
     hasEquivalentPendingOrder: false,
@@ -434,6 +435,32 @@ describe("risk engine", () => {
         }),
       );
       expect(result.checks.find((c) => c.name === "min_share_price")?.passed).toBe(true);
+    });
+
+    it("crypto trades are exempt from the equity daily cap and use their own", () => {
+      const limits = { ...PAPER_DEFAULT_LIMITS, allowCrypto: true };
+      // Equity cap exhausted, crypto still allowed.
+      const cryptoOk = evaluateRisk(
+        ctx({ proposal: cryptoProposal, quote: cryptoQuote, limits, executedTradesToday: 3 }),
+      );
+      expect(cryptoOk.overallResult).toBe("PASS");
+      // Crypto cap exhausted blocks crypto…
+      blockedBy(
+        evaluateRisk(
+          ctx({
+            proposal: cryptoProposal,
+            quote: cryptoQuote,
+            limits,
+            executedCryptoTradesToday: limits.maxCryptoTradesPerDay,
+          }),
+        ),
+        "daily_trade_count",
+      );
+      // …but does not block equities.
+      const equityOk = evaluateRisk(
+        ctx({ limits, executedCryptoTradesToday: limits.maxCryptoTradesPerDay }),
+      );
+      expect(equityOk.overallResult).toBe("PASS");
     });
 
     it("crypto still respects order-size and exposure caps", () => {

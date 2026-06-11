@@ -386,6 +386,7 @@ export function RiskLimitsCard({ limits }: { limits: RiskLimits }) {
     maxSymbolExposurePct: limits.maxSymbolExposurePct,
     maxOrderNotional: limits.maxOrderNotional,
     maxTradesPerDay: limits.maxTradesPerDay,
+    maxCryptoTradesPerDay: limits.maxCryptoTradesPerDay,
     maxDailyLossPct: limits.maxDailyLossPct,
     maxDrawdownPct: limits.maxDrawdownPct,
     minSharePrice: limits.minSharePrice,
@@ -401,6 +402,7 @@ export function RiskLimitsCard({ limits }: { limits: RiskLimits }) {
     form.maxSymbolExposurePct > limits.maxSymbolExposurePct ||
     form.maxOrderNotional > limits.maxOrderNotional ||
     form.maxTradesPerDay > limits.maxTradesPerDay ||
+    form.maxCryptoTradesPerDay > limits.maxCryptoTradesPerDay ||
     form.maxDailyLossPct > limits.maxDailyLossPct ||
     form.maxDrawdownPct > limits.maxDrawdownPct ||
     form.minSharePrice < limits.minSharePrice;
@@ -439,7 +441,8 @@ export function RiskLimitsCard({ limits }: { limits: RiskLimits }) {
       key: "maxOrderNotional",
       label: limits.maxOrderNotionalIsPct ? "Max order (% equity)" : "Max order ($)",
     },
-    { key: "maxTradesPerDay", label: "Max trades / day" },
+    { key: "maxTradesPerDay", label: "Max equity trades / day" },
+    { key: "maxCryptoTradesPerDay", label: "Max crypto trades / day" },
     { key: "maxDailyLossPct", label: "Daily loss halt %" },
     { key: "maxDrawdownPct", label: "Drawdown halt %" },
     { key: "minSharePrice", label: "Min share price $" },

@@ -141,6 +141,7 @@ export class SupabaseStore implements Store {
       maxOrderNotional: Number(row.max_order_notional),
       maxOrderNotionalIsPct: row.max_order_notional_is_pct,
       maxTradesPerDay: row.max_trades_per_day,
+      maxCryptoTradesPerDay: row.max_crypto_trades_per_day ?? 100,
       maxDailyLossPct: Number(row.max_daily_loss_pct),
       maxDrawdownPct: Number(row.max_drawdown_pct),
       minSharePrice: Number(row.min_share_price),
@@ -181,6 +182,7 @@ export class SupabaseStore implements Store {
           max_order_notional: next.maxOrderNotional,
           max_order_notional_is_pct: next.maxOrderNotionalIsPct,
           max_trades_per_day: next.maxTradesPerDay,
+          max_crypto_trades_per_day: next.maxCryptoTradesPerDay,
           max_daily_loss_pct: next.maxDailyLossPct,
           max_drawdown_pct: next.maxDrawdownPct,
           min_share_price: next.minSharePrice,
@@ -433,13 +435,19 @@ export class SupabaseStore implements Store {
     return rows.map(mapOrder);
   }
 
-  async countExecutedTradesToday(environment: Environment, dayStartIso: string): Promise<number> {
-    const { count, error } = await this.db
+  async countExecutedTradesToday(
+    environment: Environment,
+    dayStartIso: string,
+    kind: "equity" | "crypto",
+  ): Promise<number> {
+    let query = this.db
       .from("brokerage_orders")
       .select("id", { count: "exact", head: true })
       .eq("environment", environment)
       .gte("submitted_at", dayStartIso)
       .in("status", ["FILLED", "PARTIALLY_FILLED", "SUBMITTED", "ACCEPTED"]);
+    query = kind === "crypto" ? query.like("symbol", "%/%") : query.not("symbol", "like", "%/%");
+    const { count, error } = await query;
     if (error) throw new Error(`Supabase error: ${error.message}`);
     return count ?? 0;
   }

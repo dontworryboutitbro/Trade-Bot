@@ -29,8 +29,10 @@ export interface RiskContext {
   tradingMode: TradingMode;
   globalKillSwitch: boolean;
   stopNewOrders: boolean;
-  /** Executed trade count for the current market day in this environment. */
+  /** Executed EQUITY trade count for the current market day in this environment. */
   executedTradesToday: number;
+  /** Executed CRYPTO trade count for the current day (crypto has its own cap). */
+  executedCryptoTradesToday: number;
   /** Portfolio daily return percentage (negative = loss), from snapshots. */
   dailyReturnPct: number;
   /** Current drawdown percentage from peak equity (positive number = % below peak). */
@@ -278,16 +280,28 @@ const checkPositionCount: Check = (ctx) => {
       );
 };
 
-const checkDailyTradeCount: Check = (ctx) =>
-  ctx.executedTradesToday < ctx.limits.maxTradesPerDay
+const checkDailyTradeCount: Check = (ctx) => {
+  if (isCrypto(ctx)) {
+    return ctx.executedCryptoTradesToday < ctx.limits.maxCryptoTradesPerDay
+      ? pass(
+          "daily_trade_count",
+          `${ctx.executedCryptoTradesToday} of ${ctx.limits.maxCryptoTradesPerDay} daily crypto trades used.`,
+        )
+      : fail(
+          "daily_trade_count",
+          `Daily crypto trade limit of ${ctx.limits.maxCryptoTradesPerDay} already reached.`,
+        );
+  }
+  return ctx.executedTradesToday < ctx.limits.maxTradesPerDay
     ? pass(
         "daily_trade_count",
-        `${ctx.executedTradesToday} of ${ctx.limits.maxTradesPerDay} daily trades used.`,
+        `${ctx.executedTradesToday} of ${ctx.limits.maxTradesPerDay} daily equity trades used.`,
       )
     : fail(
         "daily_trade_count",
-        `Daily trade limit of ${ctx.limits.maxTradesPerDay} already reached.`,
+        `Daily equity trade limit of ${ctx.limits.maxTradesPerDay} already reached.`,
       );
+};
 
 const checkDailyLoss: Check = (ctx) =>
   ctx.dailyReturnPct <= -ctx.limits.maxDailyLossPct

@@ -179,6 +179,8 @@ export interface RiskLimits {
   maxOrderNotional: number;
   maxOrderNotionalIsPct: boolean;
   maxTradesPerDay: number;
+  /** Separate daily cap for crypto trades (crypto trades 24/7 and is exempt from the equity cap). */
+  maxCryptoTradesPerDay: number;
   maxDailyLossPct: number;
   maxDrawdownPct: number;
   minSharePrice: number;

@@ -8,6 +8,7 @@ export const PAPER_DEFAULT_LIMITS: RiskLimits = {
   maxOrderNotional: 10, // 10% of equity
   maxOrderNotionalIsPct: true,
   maxTradesPerDay: 3,
+  maxCryptoTradesPerDay: 100,
   maxDailyLossPct: 2,
   maxDrawdownPct: 8,
   minSharePrice: 10,
@@ -30,6 +31,7 @@ export const LIVE_DEFAULT_LIMITS: RiskLimits = {
   maxOrderNotional: 100, // absolute $100 cap
   maxOrderNotionalIsPct: false,
   maxTradesPerDay: 3,
+  maxCryptoTradesPerDay: 3, // crypto is locked off for LIVE anyway
   maxDailyLossPct: 2,
   maxDrawdownPct: 8,
   minSharePrice: 10,

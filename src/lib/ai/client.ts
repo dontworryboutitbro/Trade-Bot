@@ -139,7 +139,7 @@ Risk limits in force (deterministic code enforces these; stay inside them):
 - Max total exposure: ${limits.maxTotalExposurePct}% of equity
 - Max per-symbol exposure: ${limits.maxSymbolExposurePct}% of equity
 - Max single order: ${limits.maxOrderNotionalIsPct ? `${limits.maxOrderNotional}% of equity` : `$${limits.maxOrderNotional}`}
-- Max trades per day: ${limits.maxTradesPerDay}
+- Max equity trades per day: ${limits.maxTradesPerDay}${limits.allowCrypto ? `\n- Max crypto trades per day: ${limits.maxCryptoTradesPerDay} (separate from the equity cap)` : ""}
 - Min share price (equities): $${limits.minSharePrice}
 - Long-only, cash-only, no margin/options/leveraged/inverse/OTC.
 - Crypto: ${limits.allowCrypto ? "ALLOWED for approved pairs (24/7, fractional quantities)" : "NOT allowed"}.

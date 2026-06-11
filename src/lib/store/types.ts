@@ -176,7 +176,11 @@ export interface Store {
     openOnly?: boolean;
     limit?: number;
   }): Promise<StoredOrder[]>;
-  countExecutedTradesToday(environment: Environment, dayStartIso: string): Promise<number>;
+  countExecutedTradesToday(
+    environment: Environment,
+    dayStartIso: string,
+    kind: "equity" | "crypto",
+  ): Promise<number>;
   hasOrderForProposal(proposalId: string): Promise<boolean>;
   hasOpenEquivalentOrder(
     environment: Environment,

@@ -252,6 +252,7 @@ const TIGHTEN_ONLY_NUMERIC: { key: keyof RiskLimits; lowerIsSafer: boolean }[] =
   { key: "maxSymbolExposurePct", lowerIsSafer: true },
   { key: "maxOrderNotional", lowerIsSafer: true },
   { key: "maxTradesPerDay", lowerIsSafer: true },
+  { key: "maxCryptoTradesPerDay", lowerIsSafer: true },
   { key: "maxDailyLossPct", lowerIsSafer: true },
   { key: "maxDrawdownPct", lowerIsSafer: true },
   { key: "minSharePrice", lowerIsSafer: false },
