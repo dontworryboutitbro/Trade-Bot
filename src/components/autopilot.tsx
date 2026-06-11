@@ -39,15 +39,16 @@ interface Persisted {
   day: string;
 }
 
+const FALLBACK: Persisted = {
+  enabled: false,
+  evalMinutes: 30,
+  points: [],
+  lastEvalAt: 0,
+  day: "",
+};
+
 function loadPersisted(): Persisted {
-  const fallback: Persisted = {
-    enabled: false,
-    evalMinutes: 30,
-    points: [],
-    lastEvalAt: 0,
-    day: new Date().toDateString(),
-  };
-  if (typeof window === "undefined") return fallback;
+  const fallback: Persisted = { ...FALLBACK, day: new Date().toDateString() };
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return fallback;
@@ -61,7 +62,15 @@ function loadPersisted(): Persisted {
 }
 
 export function Autopilot({ mode }: { mode: TradingMode }) {
-  const [state, setState] = useState<Persisted>(loadPersisted);
+  // Server and first client render must match: start from the static fallback
+  // and hydrate persisted session state after mount.
+  const [state, setState] = useState<Persisted>(FALLBACK);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setState(loadPersisted());
+    setHydrated(true);
+  }, []);
   const [marketOpen, setMarketOpen] = useState<boolean | null>(null);
   const [lastAction, setLastAction] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -70,14 +79,15 @@ export function Autopilot({ mode }: { mode: TradingMode }) {
 
   const autonomous = isAutonomousMode(mode);
 
-  // Persist on every change.
+  // Persist on every change (only after the stored state has been loaded).
   useEffect(() => {
+    if (!hydrated) return;
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
       // storage full/unavailable — chart just won't survive a refresh
     }
-  }, [state]);
+  }, [state, hydrated]);
 
   const pollEquity = useCallback(async () => {
     try {
@@ -118,7 +128,7 @@ export function Autopilot({ mode }: { mode: TradingMode }) {
 
   // Main autopilot loop.
   useEffect(() => {
-    if (!state.enabled) return;
+    if (!hydrated || !state.enabled) return;
     let cancelled = false;
     let lastReconcile = 0;
 
@@ -158,18 +168,18 @@ export function Autopilot({ mode }: { mode: TradingMode }) {
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.enabled, state.evalMinutes, state.lastEvalAt, pollEquity, runJob]);
+  }, [hydrated, state.enabled, state.evalMinutes, state.lastEvalAt, pollEquity, runJob]);
 
   // Passive equity polling even when autopilot is off, so the chart is alive.
   useEffect(() => {
-    if (state.enabled) return;
+    if (!hydrated || state.enabled) return;
     const initial = setTimeout(pollEquity, 0);
     const interval = setInterval(pollEquity, POLL_MS);
     return () => {
       clearTimeout(initial);
       clearInterval(interval);
     };
-  }, [state.enabled, pollEquity]);
+  }, [hydrated, state.enabled, pollEquity]);
 
   const first = state.points[0];
   const last = state.points[state.points.length - 1];
