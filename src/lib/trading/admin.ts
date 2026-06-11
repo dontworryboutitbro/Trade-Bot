@@ -267,12 +267,11 @@ export async function updateRiskLimits(
   const store = await getStore();
   const current = await store.getRiskLimits(environment);
 
-  // The prohibition flags can never be loosened through the app, by anyone.
+  // These prohibition flags can never be loosened through the app, by anyone.
   const frozen: (keyof RiskLimits)[] = [
     "allowMargin",
     "allowOptions",
     "allowShorting",
-    "allowCrypto",
     "allowLeveragedEtfs",
     "allowInverseEtfs",
     "allowOtc",
@@ -280,6 +279,18 @@ export async function updateRiskLimits(
   for (const key of frozen) {
     if (next[key] !== current[key]) {
       throw new Error(`${key} cannot be changed through the app.`);
+    }
+  }
+
+  // Crypto is opt-in for MOCK/PAPER with its own typed phrase; LIVE stays frozen.
+  if (next.allowCrypto !== current.allowCrypto) {
+    if (environment === "LIVE") {
+      throw new Error("Crypto cannot be enabled for LIVE through the app.");
+    }
+    if (next.allowCrypto && confirmation !== "ENABLE CRYPTO TRADING") {
+      throw new Error(
+        'Enabling crypto requires the typed confirmation "ENABLE CRYPTO TRADING".',
+      );
     }
   }
   if (next.maxOrderNotionalIsPct !== current.maxOrderNotionalIsPct) {
@@ -303,9 +314,15 @@ export async function updateRiskLimits(
     loosened.push(`maxLiveFundedBalance: ${current.maxLiveFundedBalance} → ${next.maxLiveFundedBalance}`);
   }
 
-  if (loosened.length > 0 && confirmation !== "INCREASE RISK LIMITS") {
+  // Non-crypto loosening requires its own phrase (crypto enablement was
+  // already gated on "ENABLE CRYPTO TRADING" above).
+  if (next.allowCrypto && !current.allowCrypto) {
+    loosened.push("allowCrypto: off → on");
+  }
+  const nonCryptoLoosened = loosened.filter((l) => !l.startsWith("allowCrypto"));
+  if (nonCryptoLoosened.length > 0 && confirmation !== "INCREASE RISK LIMITS") {
     throw new Error(
-      `Loosening limits (${loosened.join(", ")}) requires the typed confirmation "INCREASE RISK LIMITS".`,
+      `Loosening limits (${nonCryptoLoosened.join(", ")}) requires the typed confirmation "INCREASE RISK LIMITS".`,
     );
   }
 
@@ -342,15 +359,25 @@ export async function validateAndAddSymbol(
   const store = await getStore();
   const settings = await store.getSettings();
   const normalized = symbol.trim().toUpperCase();
-  if (!/^[A-Z]{1,6}$/.test(normalized)) {
-    return { ok: false, detail: "Symbol must be 1–6 letters." };
+  if (!/^[A-Z]{1,6}(\/[A-Z]{3,4})?$/.test(normalized)) {
+    return { ok: false, detail: "Symbol must be 1–6 letters, or a crypto pair like BTC/USD." };
   }
 
   const brokerage = getBrokerageClient(settings.tradingMode);
   const asset = await brokerage.getAsset(normalized);
   if (!asset) return { ok: false, detail: `${normalized} was not found at the brokerage.` };
   if (!asset.tradable) return { ok: false, detail: `${normalized} is not tradable.` };
-  if (asset.assetClass !== "us_equity") {
+  if (asset.assetClass === "crypto") {
+    const limits = await store.getRiskLimits(
+      settings.tradingMode === "MOCK" ? "MOCK" : "PAPER",
+    );
+    if (!limits.allowCrypto) {
+      return {
+        ok: false,
+        detail: `${normalized} is crypto — enable crypto trading in Risk limits first.`,
+      };
+    }
+  } else if (asset.assetClass !== "us_equity") {
     return { ok: false, detail: `Asset class ${asset.assetClass} is not permitted.` };
   }
 

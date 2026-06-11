@@ -100,12 +100,23 @@ const checkSymbolApproved: Check = (ctx) => {
     : fail("symbol_approved", `${ctx.proposal.symbol} is not an active approved symbol.`);
 };
 
+function isCrypto(ctx: RiskContext): boolean {
+  return (
+    ctx.approvedSymbols.find((s) => s.symbol === ctx.proposal.symbol)?.assetClass === "crypto"
+  );
+}
+
 const checkAssetType: Check = (ctx) => {
   const entry = ctx.approvedSymbols.find((s) => s.symbol === ctx.proposal.symbol);
   if (!entry) return fail("asset_type", `${ctx.proposal.symbol} has no validated asset record.`);
   if (!entry.tradable) return fail("asset_type", `${entry.symbol} is not tradable.`);
-  if (entry.assetClass !== "us_equity")
-    return fail("asset_type", `Asset class ${entry.assetClass} is not permitted (us_equity only).`);
+  if (entry.assetClass === "crypto" && !ctx.limits.allowCrypto)
+    return fail("asset_type", `${entry.symbol} is crypto, which is prohibited by the risk profile.`);
+  if (entry.assetClass !== "us_equity" && entry.assetClass !== "crypto")
+    return fail(
+      "asset_type",
+      `Asset class ${entry.assetClass} is not permitted (us_equity or crypto only).`,
+    );
   if (entry.leveraged && !ctx.limits.allowLeveragedEtfs)
     return fail("asset_type", `${entry.symbol} is a leveraged ETF, which is prohibited.`);
   if (entry.inverse && !ctx.limits.allowInverseEtfs)
@@ -146,6 +157,7 @@ const checkQuoteFresh: Check = (ctx) => {
 };
 
 const checkMinSharePrice: Check = (ctx) => {
+  if (isCrypto(ctx)) return pass("min_share_price", "Crypto pair: penny-stock rule not applicable.");
   if (!ctx.quote) return fail("min_share_price", "No quote to validate price.");
   return ctx.quote.price >= ctx.limits.minSharePrice
     ? pass("min_share_price", `$${ctx.quote.price.toFixed(2)} ≥ $${ctx.limits.minSharePrice}.`)
@@ -156,6 +168,7 @@ const checkMinSharePrice: Check = (ctx) => {
 };
 
 const checkMarketOpen: Check = (ctx) => {
+  if (isCrypto(ctx)) return pass("market_open", "Crypto trades 24/7; market hours not applicable.");
   if (!ctx.limits.marketHoursOnly) return pass("market_open", "Market-hours restriction off.");
   return ctx.marketClock.isOpen
     ? pass("market_open", "Market is open.")

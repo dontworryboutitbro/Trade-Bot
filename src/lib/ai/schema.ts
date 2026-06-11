@@ -5,7 +5,12 @@ import { z } from "zod";
 
 export const aiActionSchema = z
   .object({
-    symbol: z.string().min(1).max(10).toUpperCase(),
+    symbol: z
+      .string()
+      .min(1)
+      .max(11)
+      .toUpperCase()
+      .regex(/^[A-Z]{1,6}(\/[A-Z]{3,4})?$/, "equity ticker or crypto pair like BTC/USD"),
     action: z.enum(["BUY", "SELL", "REDUCE", "EXIT", "HOLD", "NO_ACTION"]),
     quantity: z.number().min(0).finite(),
     proposed_notional: z.number().min(0).finite(),

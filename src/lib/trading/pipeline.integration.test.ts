@@ -183,6 +183,43 @@ describe("risk limit governance", () => {
     expect(alerts.some((n) => n.notificationType === "RISK_LIMITS_LOOSENED")).toBe(true);
   });
 
+  it("enabling crypto requires its exact typed phrase", async () => {
+    const limits = await store.getRiskLimits("MOCK");
+    await expect(
+      updateRiskLimits("tester", "MOCK", { ...limits, allowCrypto: true }, null, "want crypto"),
+    ).rejects.toThrow("ENABLE CRYPTO TRADING");
+    await expect(
+      updateRiskLimits(
+        "tester",
+        "MOCK",
+        { ...limits, allowCrypto: true },
+        "INCREASE RISK LIMITS",
+        "wrong phrase",
+      ),
+    ).rejects.toThrow("ENABLE CRYPTO TRADING");
+    await updateRiskLimits(
+      "tester",
+      "MOCK",
+      { ...limits, allowCrypto: true },
+      "ENABLE CRYPTO TRADING",
+      "crypto opt-in",
+    );
+    expect((await store.getRiskLimits("MOCK")).allowCrypto).toBe(true);
+  });
+
+  it("crypto can never be enabled for LIVE", async () => {
+    const limits = await store.getRiskLimits("LIVE");
+    await expect(
+      updateRiskLimits(
+        "tester",
+        "LIVE",
+        { ...limits, allowCrypto: true },
+        "ENABLE CRYPTO TRADING",
+        "trying live crypto",
+      ),
+    ).rejects.toThrow("cannot be enabled for LIVE");
+  });
+
   it("prohibition flags can never be loosened, even with confirmation (AI or human)", async () => {
     const limits = await store.getRiskLimits("MOCK");
     await expect(

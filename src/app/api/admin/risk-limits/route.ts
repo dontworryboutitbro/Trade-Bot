@@ -15,6 +15,7 @@ const limitsSchema = z.object({
   minSharePrice: z.number().min(0),
   maxLiveFundedBalance: z.number().min(0).nullable(),
   marketHoursOnly: z.boolean(),
+  allowCrypto: z.boolean().optional(),
   confirmation: z.string().max(100).nullable().optional().default(null),
   reason: z.string().min(1).max(500),
 });
@@ -37,6 +38,7 @@ export const POST = adminRoute(limitsSchema, async (body, user) => {
       minSharePrice: body.minSharePrice,
       maxLiveFundedBalance: body.maxLiveFundedBalance,
       marketHoursOnly: body.marketHoursOnly,
+      allowCrypto: body.allowCrypto ?? current.allowCrypto,
     },
     body.confirmation,
     body.reason,

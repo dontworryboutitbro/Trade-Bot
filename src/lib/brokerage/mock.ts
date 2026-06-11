@@ -45,6 +45,9 @@ const BASE_PRICES: Record<string, number> = {
   XLP: 82.1,
   XLY: 218.4,
   XLU: 80.6,
+  "BTC/USD": 101250.0,
+  "ETH/USD": 3865.0,
+  "LTC/USD": 118.4,
 };
 
 function freshState(): MockState {
@@ -243,12 +246,13 @@ export class MockBrokerageClient implements BrokerageClient {
 
   async getAsset(symbol: string): Promise<AssetInfo | null> {
     if (!(symbol in BASE_PRICES)) return null;
+    const crypto = symbol.includes("/");
     return {
       symbol,
       name: `${symbol} (mock)`,
       tradable: true,
-      assetClass: "us_equity",
-      exchange: "ARCA",
+      assetClass: crypto ? "crypto" : "us_equity",
+      exchange: crypto ? "CRYPTO" : "ARCA",
       fractionable: true,
     };
   }

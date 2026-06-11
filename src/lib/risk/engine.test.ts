@@ -67,6 +67,16 @@ const approvedSymbols: ApprovedSymbol[] = [
     active: true,
   },
   {
+    symbol: "BTC/USD",
+    displayName: "Bitcoin / USD",
+    assetClass: "crypto",
+    tradable: true,
+    leveraged: false,
+    inverse: false,
+    otc: false,
+    active: true,
+  },
+  {
     symbol: "PINKCO",
     displayName: "Pink Sheet Co",
     assetClass: "us_equity",
@@ -367,6 +377,77 @@ describe("risk engine", () => {
       evaluateRisk({ ...base, account: { ...base.account, tradingBlocked: true } }),
       "account_restrictions",
     );
+  });
+
+  describe("crypto", () => {
+    const cryptoQuote = { symbol: "BTC/USD", price: 101250, asOf: NOW.toISOString() };
+    const cryptoProposal = proposal({ symbol: "BTC/USD", quantity: 0.005 }); // ~$506
+
+    it("blocks crypto when allowCrypto is off (default)", () => {
+      blockedBy(
+        evaluateRisk(ctx({ proposal: cryptoProposal, quote: cryptoQuote })),
+        "asset_type",
+      );
+    });
+
+    it("allows crypto when allowCrypto is on", () => {
+      const result = evaluateRisk(
+        ctx({
+          proposal: cryptoProposal,
+          quote: cryptoQuote,
+          limits: { ...PAPER_DEFAULT_LIMITS, allowCrypto: true },
+        }),
+      );
+      expect(result.overallResult).toBe("PASS");
+    });
+
+    it("crypto trades while the market is closed; equities still cannot", () => {
+      const closedClock = {
+        isOpen: false,
+        nextOpen: "2026-06-11T13:30:00.000Z",
+        nextClose: "2026-06-11T20:00:00.000Z",
+        asOf: NOW.toISOString(),
+      };
+      const cryptoResult = evaluateRisk(
+        ctx({
+          proposal: cryptoProposal,
+          quote: cryptoQuote,
+          marketClock: closedClock,
+          limits: { ...PAPER_DEFAULT_LIMITS, allowCrypto: true },
+        }),
+      );
+      expect(cryptoResult.overallResult).toBe("PASS");
+      blockedBy(
+        evaluateRisk(
+          ctx({ marketClock: closedClock, limits: { ...PAPER_DEFAULT_LIMITS, allowCrypto: true } }),
+        ),
+        "market_open",
+      );
+    });
+
+    it("crypto is exempt from the minimum share price rule", () => {
+      const result = evaluateRisk(
+        ctx({
+          proposal: proposal({ symbol: "BTC/USD", quantity: 1 }),
+          quote: { symbol: "BTC/USD", price: 5, asOf: NOW.toISOString() }, // sub-$10 price
+          limits: { ...PAPER_DEFAULT_LIMITS, allowCrypto: true },
+        }),
+      );
+      expect(result.checks.find((c) => c.name === "min_share_price")?.passed).toBe(true);
+    });
+
+    it("crypto still respects order-size and exposure caps", () => {
+      blockedBy(
+        evaluateRisk(
+          ctx({
+            proposal: proposal({ symbol: "BTC/USD", quantity: 0.02 }), // ~$2025 > $1000 cap
+            quote: cryptoQuote,
+            limits: { ...PAPER_DEFAULT_LIMITS, allowCrypto: true },
+          }),
+        ),
+        "order_size",
+      );
+    });
   });
 
   describe("live limits", () => {

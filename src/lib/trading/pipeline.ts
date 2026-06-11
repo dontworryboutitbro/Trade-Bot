@@ -248,11 +248,16 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
     const aiExpiry = new Date(action.expiration_timestamp);
     const expiresAt = (aiExpiry < maxExpiry ? aiExpiry : maxExpiry).toISOString();
 
+    // Crypto pairs trade in fractional quantities; equities are whole shares.
+    const isCryptoSymbol =
+      approvedSymbols.find((s) => s.symbol === action.symbol)?.assetClass === "crypto";
     const proposal = await store.createProposal({
       environment,
       symbol: action.symbol,
       action: action.action,
-      quantity: Math.floor(action.quantity),
+      quantity: isCryptoSymbol
+        ? Math.round(action.quantity * 1e6) / 1e6
+        : Math.floor(action.quantity),
       proposedNotional: action.proposed_notional,
       orderType: action.order_type,
       limitPrice: action.order_type === "LIMIT" ? action.limit_price : null,
@@ -381,6 +386,11 @@ export async function executeProposal(
   const clientOrderId = `ffl-${proposal.id.slice(0, 18)}`;
   const side = sideOf(proposal.action);
   const brokerage = getBrokerageClient(mode);
+  // Alpaca rejects time_in_force "day" for crypto; crypto requires "gtc".
+  const timeInForce =
+    ctx.approvedSymbols.find((s) => s.symbol === proposal.symbol)?.assetClass === "crypto"
+      ? ("gtc" as const)
+      : ("day" as const);
 
   // If we already recorded this order locally, reconcile instead of resubmitting.
   const existingLocal = await store.getOrderByClientOrderId(clientOrderId);
@@ -422,7 +432,7 @@ export async function executeProposal(
       type: proposal.orderType,
       quantity: proposal.quantity,
       limitPrice: proposal.limitPrice,
-      timeInForce: "day",
+      timeInForce,
     });
 
     const order = await store.createOrder({

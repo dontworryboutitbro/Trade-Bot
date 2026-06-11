@@ -472,8 +472,59 @@ export function RiskLimitsCard({ limits }: { limits: RiskLimits }) {
           {loosening ? "Save (loosens limits)" : "Save limits"}
         </button>
         <span className="text-xs text-faint">
-          Margin, options, shorting, crypto, leveraged/inverse ETFs and OTC are permanently
-          prohibited and cannot be enabled here.
+          Margin, options, shorting, leveraged/inverse ETFs and OTC are permanently prohibited
+          and cannot be enabled here.
+        </span>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-edge pt-3">
+        <span className="text-xs font-medium uppercase tracking-wider text-faint">
+          Crypto trading
+        </span>
+        <Badge tone={limits.allowCrypto ? "green" : "muted"}>
+          {limits.allowCrypto ? "Enabled" : "Disabled"}
+        </Badge>
+        {limits.environment !== "LIVE" ? (
+          <button
+            disabled={busy}
+            onClick={async () => {
+              let confirmation: string | null = null;
+              if (!limits.allowCrypto) {
+                confirmation = window.prompt(
+                  'Enable CRYPTO trading for this environment?\n\nCrypto trades 24/7 and is far more volatile than the ETF universe. All other risk limits (order size, exposure, trades/day) still apply.\n\nType "ENABLE CRYPTO TRADING" to confirm:',
+                );
+                if (confirmation === null) return;
+              } else if (!window.confirm("Disable crypto trading? Existing crypto positions are unaffected.")) {
+                return;
+              }
+              setBusy(true);
+              setMessage(null);
+              const result = await post("/api/admin/risk-limits", {
+                environment: limits.environment,
+                ...form,
+                maxLiveFundedBalance: limits.maxLiveFundedBalance,
+                marketHoursOnly: limits.marketHoursOnly,
+                allowCrypto: !limits.allowCrypto,
+                confirmation,
+                reason: limits.allowCrypto ? "Disable crypto trading" : "Enable crypto trading",
+              });
+              setBusy(false);
+              setIsError(!result.ok);
+              setMessage(result.ok ? "Crypto setting saved." : (result.error ?? "Failed"));
+              router.refresh();
+            }}
+            className={`rounded border px-3 py-1.5 text-xs font-bold uppercase tracking-wide disabled:opacity-40 ${
+              limits.allowCrypto
+                ? "border-edge-strong text-muted hover:text-foreground"
+                : "border-warning/60 text-warning hover:bg-warning/10"
+            }`}
+          >
+            {limits.allowCrypto ? "Disable crypto" : "Enable crypto"}
+          </button>
+        ) : (
+          <span className="text-xs text-faint">Locked for LIVE.</span>
+        )}
+        <span className="text-xs text-faint">
+          After enabling, add pairs like BTC/USD under Approved symbols and activate them.
         </span>
       </div>
       <Msg text={message} error={isError} />

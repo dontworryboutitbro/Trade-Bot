@@ -233,12 +233,25 @@ export class AlpacaMarketDataClient implements MarketDataClient {
 
   async getQuotes(symbols: string[]): Promise<Quote[]> {
     if (symbols.length === 0) return [];
-    const raw = await this.request<any>(
-      `/v2/stocks/trades/latest?symbols=${encodeURIComponent(symbols.join(","))}&feed=iex`,
-    );
+    // Crypto pairs (e.g. BTC/USD) use a separate data endpoint.
+    const stocks = symbols.filter((s) => !s.includes("/"));
+    const crypto = symbols.filter((s) => s.includes("/"));
     const out: Quote[] = [];
-    for (const [symbol, trade] of Object.entries<any>(raw.trades ?? {})) {
-      out.push({ symbol, price: Number(trade.p), asOf: trade.t });
+    if (stocks.length > 0) {
+      const raw = await this.request<any>(
+        `/v2/stocks/trades/latest?symbols=${encodeURIComponent(stocks.join(","))}&feed=iex`,
+      );
+      for (const [symbol, trade] of Object.entries<any>(raw.trades ?? {})) {
+        out.push({ symbol, price: Number(trade.p), asOf: trade.t });
+      }
+    }
+    if (crypto.length > 0) {
+      const raw = await this.request<any>(
+        `/v1beta3/crypto/us/latest/trades?symbols=${encodeURIComponent(crypto.join(","))}`,
+      );
+      for (const [symbol, trade] of Object.entries<any>(raw.trades ?? {})) {
+        out.push({ symbol, price: Number(trade.p), asOf: trade.t });
+      }
     }
     return out;
   }
@@ -246,6 +259,20 @@ export class AlpacaMarketDataClient implements MarketDataClient {
   async getDailyBars(symbol: string, days: number): Promise<Bar[]> {
     const start = new Date();
     start.setDate(start.getDate() - Math.ceil(days * 1.6));
+    if (symbol.includes("/")) {
+      const raw = await this.request<any>(
+        `/v1beta3/crypto/us/bars?symbols=${encodeURIComponent(symbol)}&timeframe=1Day&start=${start.toISOString()}&limit=${days + 10}`,
+      );
+      return (raw.bars?.[symbol] ?? []).map((b: any) => ({
+        symbol,
+        timestamp: b.t,
+        open: Number(b.o),
+        high: Number(b.h),
+        low: Number(b.l),
+        close: Number(b.c),
+        volume: Number(b.v),
+      }));
+    }
     const raw = await this.request<any>(
       `/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=1Day&start=${start.toISOString()}&limit=${days + 10}&adjustment=split&feed=iex`,
     );

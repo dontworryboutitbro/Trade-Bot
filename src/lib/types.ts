@@ -104,7 +104,8 @@ export interface OrderRequest {
   type: OrderType;
   quantity: number;
   limitPrice?: number | null;
-  timeInForce: "day";
+  /** Equities use "day"; Alpaca crypto orders require "gtc". */
+  timeInForce: "day" | "gtc";
 }
 
 export interface BrokerageOrder {
