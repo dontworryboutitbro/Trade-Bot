@@ -111,7 +111,9 @@ export interface CryptoFilterConfig {
 }
 
 export const DEFAULT_CRYPTO_FILTERS: CryptoFilterConfig = {
-  min24hDollarVolume: 5_000_000,
+  // Alpaca-VENUE 24h dollar volume (where we actually execute) — venue books
+  // are far thinner than global crypto volume, so this floor is venue-scaled.
+  min24hDollarVolume: 50_000,
   maxSpreadBps: 60,
   minOrderBookDepthUsd: 25_000,
   maxRealizedVolPct: 150,
@@ -168,7 +170,7 @@ export function classifyCrypto(
       : null;
   if (vol24h === null || vol24h < config.min24hDollarVolume) {
     reasons.push(
-      `24h dollar volume ${vol24h === null ? "unknown" : `$${(vol24h / 1e6).toFixed(1)}M`} below $${config.min24hDollarVolume / 1e6}M.`,
+      `Alpaca-venue 24h dollar volume ${vol24h === null ? "unknown" : `$${(vol24h / 1e3).toFixed(0)}k`} below $${config.min24hDollarVolume / 1e3}k.`,
     );
   }
   if (snapshot!.spreadBps !== null && snapshot!.spreadBps > config.maxSpreadBps) {

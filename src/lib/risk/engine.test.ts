@@ -214,6 +214,26 @@ describe("risk engine", () => {
     blockedBy(evaluateRisk(ctx({ approvedSymbols: symbols })), "symbol_approved");
   });
 
+  it("allows EXITS of known symbols even after deactivation (never trap a position)", () => {
+    const symbols = approvedSymbols.map((s) =>
+      s.symbol === "SPY" ? { ...s, active: false } : s,
+    );
+    const positions: Position[] = [
+      {
+        symbol: "SPY", quantity: 2, averageEntryPrice: 480, currentPrice: 500,
+        marketValue: 1000, unrealizedPl: 40, unrealizedPlPct: 4.2,
+      },
+    ];
+    const result = evaluateRisk(
+      ctx({
+        approvedSymbols: symbols,
+        positions,
+        proposal: proposal({ action: "SELL", quantity: 1 }),
+      }),
+    );
+    expect(result.checks.find((c) => c.name === "symbol_approved")!.passed).toBe(true);
+  });
+
   it("blocks options", () => {
     const result = evaluateRisk(
       ctx({ proposal: proposal({ symbol: "SPY260918C00500000" }) }),

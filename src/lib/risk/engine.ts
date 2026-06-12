@@ -111,10 +111,16 @@ const checkActionable: Check = (ctx) => {
 };
 
 const checkSymbolApproved: Check = (ctx) => {
-  const entry = ctx.approvedSymbols.find(
-    (s) => s.symbol === ctx.proposal.symbol && s.active,
-  );
-  return entry
+  const entry = ctx.approvedSymbols.find((s) => s.symbol === ctx.proposal.symbol);
+  // Exits are always allowed for KNOWN symbols even after a universe refresh
+  // deactivates them — deactivation must never trap an open position.
+  if (entry && isSellSide(ctx.proposal.action)) {
+    return pass(
+      "symbol_approved",
+      `${ctx.proposal.symbol} is known; exits are permitted regardless of active status.`,
+    );
+  }
+  return entry?.active
     ? pass("symbol_approved", `${ctx.proposal.symbol} is on the active allowlist.`)
     : fail("symbol_approved", `${ctx.proposal.symbol} is not an active approved symbol.`);
 };

@@ -120,8 +120,13 @@ export async function refreshUniverse(trigger: string): Promise<UniverseRefreshR
 
   // 2. Working pool for quote/bar evaluation (bounded).
   const approved = await store.getApprovedSymbols();
+  // Alpaca reports crypto positions without the slash ("BTCUSD") — normalize
+  // both sides so held-position protection covers crypto pairs.
+  const normalize = (s: string) => s.replace("/", "").toUpperCase();
   const held = new Set(
-    (await getBrokerageClient(mode).getPositions().catch(() => [])).map((p) => p.symbol),
+    (await getBrokerageClient(mode).getPositions().catch(() => [])).map((p) =>
+      normalize(p.symbol),
+    ),
   );
   const poolSymbols = Array.from(
     new Set([
@@ -215,7 +220,7 @@ export async function refreshUniverse(trigger: string): Promise<UniverseRefreshR
         validationDetails: { source: "universe-refresh", trigger, at: now.toISOString() },
       });
       activated.push(r.symbol);
-    } else if (!eligible && entry?.active && !held.has(r.symbol)) {
+    } else if (!eligible && entry?.active && !held.has(normalize(r.symbol))) {
       await store.setSymbolActive(r.symbol, false);
       deactivated.push(r.symbol);
     }
