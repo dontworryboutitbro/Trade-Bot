@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ModeBadge } from "@/components/mode-badge";
-import { Badge } from "@/components/ui";
+import { Badge, LivePulse } from "@/components/ui";
 import type { TradingMode } from "@/lib/types";
 import { isLiveMode } from "@/lib/types";
 
@@ -13,6 +13,8 @@ interface Status {
   stopNewOrders: boolean;
   marketOpen: boolean | null;
   brokerageOk: boolean | null;
+  spy: { price: number; changePct: number | null } | null;
+  regime: string | null;
   syncedAt: string;
 }
 
@@ -68,45 +70,60 @@ export function TopBar({ initialMode }: { initialMode: TradingMode }) {
   return (
     <>
       {isLiveMode(mode) && (
-        <div className="bg-critical px-4 py-1.5 text-center text-xs font-bold uppercase tracking-widest text-white">
+        <div className="relative z-20 bg-critical px-4 py-1 text-center text-[11px] font-bold uppercase tracking-[0.2em] text-white">
           Live money — real funds are at risk in this mode
         </div>
       )}
       {status?.killSwitch && (
-        <div className="bg-critical/20 border-b border-critical px-4 py-1.5 text-center text-xs font-semibold text-critical">
-          GLOBAL KILL SWITCH ENGAGED — all order creation is blocked. Reset it in Settings.
+        <div className="relative z-20 border-b border-critical bg-critical/15 px-4 py-1 text-center text-[11px] font-semibold uppercase tracking-[0.12em] text-critical">
+          Global kill switch engaged — all order creation blocked · reset in Settings
         </div>
       )}
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-edge bg-background/95 px-4 backdrop-blur">
-        <span className="text-sm font-semibold tracking-tight">Fable Fund Lab</span>
+      <header className="sticky top-0 z-30 flex h-12 items-center gap-2.5 border-b border-edge bg-background/90 px-4 backdrop-blur">
         <ModeBadge mode={mode} />
-        <div className="hidden items-center gap-3 text-xs text-muted sm:flex">
+
+        <div className="hidden items-center gap-2.5 sm:flex">
           {status?.marketOpen !== null && status?.marketOpen !== undefined && (
-            <span className="flex items-center gap-1.5">
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${status.marketOpen ? "bg-positive" : "bg-faint"}`}
-              />
-              Market {status.marketOpen ? "open" : "closed"}
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+              <LivePulse tone={status.marketOpen ? "green" : "muted"} />
+              {status.marketOpen ? "Market open" : "Market closed"}
             </span>
           )}
+          {status?.spy && (
+            <span className="font-num text-[11px] text-muted">
+              SPY{" "}
+              <span className="text-foreground">${status.spy.price.toFixed(2)}</span>{" "}
+              {status.spy.changePct !== null && (
+                <span className={status.spy.changePct >= 0 ? "text-positive" : "text-negative"}>
+                  {status.spy.changePct >= 0 ? "+" : ""}
+                  {status.spy.changePct.toFixed(2)}%
+                </span>
+              )}
+            </span>
+          )}
+          {status?.regime && status.regime !== "INSUFFICIENT_DATA" && (
+            <Badge tone="violet">{status.regime.replace(/_/g, " ")}</Badge>
+          )}
           {status?.brokerageOk !== null && status?.brokerageOk !== undefined && (
-            <span className="flex items-center gap-1.5">
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${status.brokerageOk ? "bg-positive" : "bg-critical"}`}
-              />
-              {mode === "MOCK" ? "Mock data" : "Alpaca"}
+            <span className="hidden items-center gap-1.5 text-[11px] uppercase tracking-[0.1em] lg:flex">
+              <LivePulse tone={status.brokerageOk ? "green" : "red"} />
+              <span className={status.brokerageOk ? "text-muted" : "text-critical"}>
+                {mode === "MOCK" ? "Mock data" : "Alpaca"}
+              </span>
             </span>
           )}
           {status?.syncedAt && (
-            <span className="hidden text-faint lg:inline">
-              Synced{" "}
+            <span className="font-num hidden text-[10px] uppercase text-faint xl:inline">
+              SYNC{" "}
               {new Date(status.syncedAt).toLocaleTimeString("en-US", {
-                hour: "numeric",
+                hour12: false,
+                hour: "2-digit",
                 minute: "2-digit",
               })}
             </span>
           )}
         </div>
+
         <div className="ml-auto flex items-center gap-2">
           {status?.stopNewOrders && !status.killSwitch && (
             <Badge tone="amber">Orders stopped</Badge>
@@ -114,7 +131,7 @@ export function TopBar({ initialMode }: { initialMode: TradingMode }) {
           <button
             onClick={toggleKillSwitch}
             disabled={busy}
-            className={`rounded border px-3 py-1.5 text-xs font-bold uppercase tracking-wide transition-colors ${
+            className={`rounded-[5px] border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] transition-colors ${
               status?.killSwitch
                 ? "border-critical bg-critical text-white"
                 : "border-critical/60 text-critical hover:bg-critical hover:text-white"

@@ -13,9 +13,20 @@ export async function GET() {
 
   let marketOpen: boolean | null = null;
   let brokerageOk: boolean | null = null;
+  let spy: { price: number; changePct: number | null } | null = null;
+  let regime: string | null = null;
   try {
-    const clock = await getMarketDataClient(settings.tradingMode).getMarketClock();
+    const marketData = getMarketDataClient(settings.tradingMode);
+    const clock = await marketData.getMarketClock();
     marketOpen = clock.isOpen;
+    const bars = await marketData.getDailyBars("SPY", 130).catch(() => []);
+    if (bars.length >= 2) {
+      const last = bars[bars.length - 1];
+      const prev = bars[bars.length - 2];
+      spy = { price: last.close, changePct: ((last.close - prev.close) / prev.close) * 100 };
+      const { classifyRegime } = await import("@/lib/regime/engine");
+      regime = classifyRegime(bars).regime;
+    }
   } catch {
     marketOpen = null;
   }
@@ -32,6 +43,8 @@ export async function GET() {
     stopNewOrders: settings.stopNewOrders,
     marketOpen,
     brokerageOk,
+    spy,
+    regime,
     syncedAt: new Date().toISOString(),
   });
 }

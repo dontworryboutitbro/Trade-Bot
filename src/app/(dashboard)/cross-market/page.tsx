@@ -31,7 +31,7 @@ function Sparkline({ points }: { points: number[] }) {
     .join(" ");
   return (
     <svg width="60" height="20" className="inline-block">
-      <polyline points={coords} fill="none" stroke="#c9a96a" strokeWidth="1.2" />
+      <polyline points={coords} fill="none" stroke="#e0409a" strokeWidth="1.2" />
     </svg>
   );
 }

@@ -242,3 +242,42 @@ additive safety:
 - **Roll back a deployment**: Vercel dashboard → Deployments → previous build →
   Promote to Production (or `vercel rollback`). DB migrations 0001–0006 are
   additive; rollback SQL is in each migration's comments.
+
+
+# Step 13 — Terminal Redesign (2026-06-12)
+
+## Implemented (no trading logic touched)
+- **Design system** (`globals.css`): near-black cool-undertone background
+  (#0a0b10), graphite surfaces, electric-magenta (#e0409a) + muted-violet
+  (#8b6cd9) accents, faint background grid + scanline texture (desktop only,
+  disabled under prefers-reduced-motion), edge-glow utilities, live-pulse
+  keyframe, chart radial aura, monospaced numeral utility (.font-num).
+- **Primitives** (`ui.tsx`): terminal panels (6px radius, uppercase
+  micro-labels, hover border-lift), terminal badges/chips, monospaced Stat
+  values, sticky table headers, LivePulse, StatusRow (LABEL → STATE rows).
+- **Shell**: redesigned sidebar (geometric 3-stroke logo mark, magenta
+  left-border active nav, bottom system-status stack: mode/feed/Supabase/
+  Alpaca/learner/kill-switch); top bar with SPY price + daily move, market
+  regime chip, sync clock, connection pulses, kill switch.
+- **Overview command center**: 12-column grid — left metric stack (8 compact
+  panels), central chart module with PORTFOLIO / VS SPY / DRAWDOWN toggles and
+  5D/1M/3M/YTD/ALL ranges (`command-chart.tsx`), right column AI RESEARCH
+  ENGINE panel (live learner stats, champions/challengers) + SYSTEM STATUS
+  stack, lower strip (positions, trades, risk rejections, alerts), emergency
+  controls, terminal footer line.
+- **New pages**: `/alerts` (grouped console: critical / requires review /
+  informational) and `/audit` (filterable audit-event terminal table).
+- **Charts** retinted: magenta primary, violet benchmark, muted gray axes,
+  graphite tooltips (equity, autopilot, cross-market sparkline).
+- All numerals monospaced; status copy in terminal voice (ARMED / LOCKED /
+  IEX LIMITED / SHADOW / ACTIVE).
+
+## Validation
+- lint ✅ typecheck ✅ 178/178 unit ✅ 17/17 e2e ✅ build ✅
+- Reviewed at 1600px (command-center grid) and 390px (stacked cards,
+  scrollable nav, kill switch visible). Magenta usage restrained to the
+  primary line, active nav, AI states, and approvals glow.
+
+## Remaining visual ideas (optional, later)
+- Per-page terminal tabs on the lower overview strip; keyboard shortcuts;
+  drawdown overlay on the Strategy Lab equity chart; sortable column headers.

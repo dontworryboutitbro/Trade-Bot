@@ -258,17 +258,17 @@ export function Autopilot({ mode }: { mode: TradingMode }) {
         ) : (
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={state.points} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-              <CartesianGrid stroke="#2a2f34" strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid stroke="#232734" strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="time"
-                stroke="#6b7480"
+                stroke="#5d6575"
                 fontSize={10}
                 tickLine={false}
                 axisLine={false}
                 minTickGap={48}
               />
               <YAxis
-                stroke="#6b7480"
+                stroke="#5d6575"
                 fontSize={10}
                 tickLine={false}
                 axisLine={false}
@@ -278,12 +278,12 @@ export function Autopilot({ mode }: { mode: TradingMode }) {
               />
               <Tooltip
                 contentStyle={{
-                  background: "#202428",
-                  border: "1px solid #3a4046",
+                  background: "#171a23",
+                  border: "1px solid #323848",
                   borderRadius: 8,
                   fontSize: 12,
                 }}
-                labelStyle={{ color: "#9aa3ab" }}
+                labelStyle={{ color: "#9aa3b2" }}
                 formatter={(value) => [fmtUsd(Number(value)), "Equity"]}
               />
               <Line

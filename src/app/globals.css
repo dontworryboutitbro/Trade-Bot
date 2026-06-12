@@ -1,31 +1,39 @@
 @import "tailwindcss";
 
 :root {
-  --background: #131517;
-  --surface: #1a1d20;
-  --surface-raised: #202428;
-  --border: #2a2f34;
-  --border-strong: #3a4046;
-  --foreground: #e8eaec;
-  --muted: #9aa3ab;
-  --faint: #6b7480;
-  --accent: #c9a96a; /* restrained brass */
-  --positive: #4fae7c;
-  --negative: #d4655f;
-  --warning: #d9a441;
-  --critical: #c44b45;
+  /* Futuristic terminal palette: near-black with a cool undertone,
+     graphite surfaces, restrained magenta/violet accents. */
+  --background: #0a0b10;
+  --surface: #11131a;
+  --surface-raised: #171a23;
+  --surface-violet: #16141f;
+  --border: #232734;
+  --border-strong: #323848;
+  --foreground: #e6e8ee;
+  --muted: #9aa3b2;
+  --faint: #5d6575;
+  --accent: #e0409a;        /* electric magenta, used sparingly */
+  --accent-violet: #8b6cd9; /* muted violet */
+  --info: #5b8fd9;          /* cool blue */
+  --positive: #3fae7c;
+  --negative: #d45a5f;
+  --warning: #cfa04a;
+  --critical: #c4454a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);
   --color-raised: var(--surface-raised);
+  --color-violet-panel: var(--surface-violet);
   --color-edge: var(--border);
   --color-edge-strong: var(--border-strong);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
   --color-accent: var(--accent);
+  --color-violet: var(--accent-violet);
+  --color-info: var(--info);
   --color-positive: var(--positive);
   --color-negative: var(--negative);
   --color-warning: var(--warning);
@@ -45,10 +53,82 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Ambient terminal texture: faint grid + scanlines. Desktop only, ultra-low
+   opacity, removed entirely under reduced motion / on small screens. */
+@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      linear-gradient(rgba(139, 108, 217, 0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(139, 108, 217, 0.022) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.0085) 0px,
+      rgba(255, 255, 255, 0.0085) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+}
+
 ::selection {
-  background: rgba(201, 169, 106, 0.25);
+  background: rgba(224, 64, 154, 0.3);
 }
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+.font-num {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Selected/high-priority panel edge glow — restrained. */
+.glow-accent {
+  box-shadow: 0 0 0 1px rgba(224, 64, 154, 0.35), 0 0 18px rgba(224, 64, 154, 0.07);
+}
+.glow-violet {
+  box-shadow: 0 0 0 1px rgba(139, 108, 217, 0.3), 0 0 16px rgba(139, 108, 217, 0.06);
+}
+
+/* Faint radial accent behind the primary chart. */
+.chart-aura {
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 0%, rgba(139, 108, 217, 0.06), transparent 70%),
+    var(--surface);
+}
+
+/* Live status pulse. */
+@keyframes terminal-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.live-pulse {
+  animation: terminal-pulse 2.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-pulse { animation: none; }
+}
+
+/* Panel hover: lift the border, no movement. */
+.panel-hover {
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.panel-hover:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 12px rgba(139, 108, 217, 0.05);
 }

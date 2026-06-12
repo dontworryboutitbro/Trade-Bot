@@ -38,14 +38,14 @@ export function EquityChart({ points, height = 260 }: { points: EquityPoint[]; h
       <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
         <defs>
           <linearGradient id="equityFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#c9a96a" stopOpacity={0.25} />
-            <stop offset="100%" stopColor="#c9a96a" stopOpacity={0} />
+            <stop offset="0%" stopColor="#e0409a" stopOpacity={0.25} />
+            <stop offset="100%" stopColor="#e0409a" stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid stroke="#2a2f34" strokeDasharray="3 3" vertical={false} />
-        <XAxis dataKey="date" stroke="#6b7480" fontSize={11} tickLine={false} axisLine={false} />
+        <CartesianGrid stroke="#232734" strokeDasharray="3 3" vertical={false} />
+        <XAxis dataKey="date" stroke="#5d6575" fontSize={11} tickLine={false} axisLine={false} />
         <YAxis
-          stroke="#6b7480"
+          stroke="#5d6575"
           fontSize={11}
           tickLine={false}
           axisLine={false}
@@ -55,18 +55,18 @@ export function EquityChart({ points, height = 260 }: { points: EquityPoint[]; h
         />
         <Tooltip
           contentStyle={{
-            background: "#202428",
-            border: "1px solid #3a4046",
+            background: "#171a23",
+            border: "1px solid #323848",
             borderRadius: 8,
             fontSize: 12,
           }}
-          labelStyle={{ color: "#9aa3ab" }}
+          labelStyle={{ color: "#9aa3b2" }}
           formatter={(value) => [fmtUsd(Number(value)), "Equity"]}
         />
         <Area
           type="monotone"
           dataKey="equity"
-          stroke="#c9a96a"
+          stroke="#e0409a"
           strokeWidth={1.8}
           fill="url(#equityFill)"
         />
@@ -97,10 +97,10 @@ export function BenchmarkChart({
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-        <CartesianGrid stroke="#2a2f34" strokeDasharray="3 3" vertical={false} />
-        <XAxis dataKey="date" stroke="#6b7480" fontSize={11} tickLine={false} axisLine={false} />
+        <CartesianGrid stroke="#232734" strokeDasharray="3 3" vertical={false} />
+        <XAxis dataKey="date" stroke="#5d6575" fontSize={11} tickLine={false} axisLine={false} />
         <YAxis
-          stroke="#6b7480"
+          stroke="#5d6575"
           fontSize={11}
           tickLine={false}
           axisLine={false}
@@ -109,19 +109,19 @@ export function BenchmarkChart({
         />
         <Tooltip
           contentStyle={{
-            background: "#202428",
-            border: "1px solid #3a4046",
+            background: "#171a23",
+            border: "1px solid #323848",
             borderRadius: 8,
             fontSize: 12,
           }}
-          labelStyle={{ color: "#9aa3ab" }}
+          labelStyle={{ color: "#9aa3b2" }}
           formatter={(value, name) => [
             `${Number(value).toFixed(2)}%`,
             name === "bot" ? "Bot" : "SPY",
           ]}
         />
-        <Line type="monotone" dataKey="bot" stroke="#c9a96a" strokeWidth={1.8} dot={false} />
-        <Line type="monotone" dataKey="spy" stroke="#6b7480" strokeWidth={1.5} dot={false} />
+        <Line type="monotone" dataKey="bot" stroke="#e0409a" strokeWidth={1.8} dot={false} />
+        <Line type="monotone" dataKey="spy" stroke="#8b6cd9" strokeWidth={1.5} dot={false} />
         <Area type="monotone" dataKey="bot" stroke="none" fill="transparent" />
       </AreaChart>
     </ResponsiveContainer>
