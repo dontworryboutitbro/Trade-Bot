@@ -89,6 +89,44 @@ test.describe("kill switch flow (mock mode)", () => {
   });
 });
 
+test.describe("strategy lab v2 pages (mock mode)", () => {
+  test("strategy lab renders the comparison table and promotion gates", async ({ page }) => {
+    await page.goto("/strategy-lab");
+    await expect(page.getByRole("heading", { name: "Strategy Lab" })).toBeVisible();
+    await expect(page.getByText("Trend-Following Pullback").first()).toBeVisible();
+    await expect(page.getByText("Past paper performance does not guarantee live results.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Run backtest" })).toBeVisible();
+  });
+
+  test("a mock backtest runs end to end with walk-forward output", async ({ request }) => {
+    const res = await request.post("/api/admin/backtest", {
+      data: { strategyId: "mean-reversion", days: 500, costBpsPerSide: 10 },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.result.metrics).toBeDefined();
+    expect(body.result.walkForward).toBeDefined();
+    expect(typeof body.result.metrics.totalReturnPct).toBe("number");
+  });
+
+  test("paper journal renders with filters and CSV export", async ({ page, request }) => {
+    await page.goto("/paper-journal");
+    await expect(page.getByRole("heading", { name: "Paper Journal" })).toBeVisible();
+    await expect(page.getByText("Export CSV")).toBeVisible();
+    const csv = await request.get("/api/journal-export");
+    expect(csv.ok()).toBeTruthy();
+    expect((await csv.text()).split("\n")[0]).toContain("symbol,strategy");
+  });
+
+  test("cross-market research renders read-only with the divergence banner", async ({ page }) => {
+    await page.goto("/cross-market");
+    await expect(page.getByRole("heading", { name: "Cross-Market Research" })).toBeVisible();
+    await expect(
+      page.getByText("Divergences may reflect different expiries", { exact: false }),
+    ).toBeVisible({ timeout: 20_000 });
+  });
+});
+
 test.describe("live activation safety", () => {
   test("live modes cannot be enabled via the API without the full ceremony", async ({ request }) => {
     const attempt = await request.post("/api/admin/mode", {

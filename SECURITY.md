@@ -74,3 +74,37 @@ ceremony can reach a live mode.
 4. Review the audit log (Settings) and `risk_evaluations` for the full decision trail.
 5. Re-enable deliberately: reset kill switch (typed phrase) → re-disable stop-new-orders →
    start in PAPER_MANUAL regardless of prior mode.
+
+## Strategy Lab v2 additions (2026-06)
+
+- **Startup security validation** (`src/lib/env-guard.ts`): every admin and cron
+  route refuses to operate (HTTP 503) when a FATAL finding exists — secrets with
+  `NEXT_PUBLIC_` prefixes, identical paper/live Alpaca keys, paper URL pointing
+  at the live API, live keys present with incomplete safety config, or a
+  service-role key equal to the publishable key. Booleans/masked output only.
+- **Market-data quality layer**: typed quote snapshots (bid/ask/spread/age/
+  liquidity); stale quotes, wide spreads, missing bids/asks, low liquidity and
+  halts deterministically block execution (`data_quality` risk check).
+- **Execution-cost model**: bid-ask + impact estimate; trades whose estimated
+  cost exceeds 75 bps or consume >1% of daily volume are blocked
+  (`execution_cost` check). Wide-spread market orders are converted to
+  marketable limit orders.
+- **Cooldowns**: deterministic re-entry, post-loss (no averaging down),
+  post-rejection, post-kill-switch-reset, and stale-data cooldowns (`cooldown`
+  check).
+- **Market-regime gating**: strategies declare approved regimes; proposals from
+  ineligible strategies are blocked (`regime_eligibility` check).
+- **Cross-market research is read-only by construction**: the Polymarket module
+  contains no authentication, no wallets, no order types, and no import path to
+  any brokerage adapter. It produces research rows, notes, and alerts only.
+- **Discord alerts** use a server-only webhook (`DISCORD_WEBHOOK_URL`), send
+  notifications only (never orders), and have per-type cooldowns.
+
+### Public-repository checklist
+
+- Review GitHub → Settings → Security → secret scanning alerts; enable **push
+  protection**.
+- Rotate any credential that has ever appeared in Git history or a chat.
+- Secrets live only in `.env.local` (local) and Vercel env vars (production).
+- Enable MFA on Alpaca, Supabase, Anthropic, GitHub, and Vercel.
+- Never paste credentials into AI chats; never use `NEXT_PUBLIC_` for secrets.
