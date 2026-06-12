@@ -281,3 +281,53 @@ additive safety:
 ## Remaining visual ideas (optional, later)
 - Per-page terminal tabs on the lower overview strip; keyboard shortcuts;
   drawdown overlay on the Strategy Lab equity chart; sortable column headers.
+
+
+# Step 20 — Always-On Scanner + Dynamic Universe (2026-06-12)
+
+## Built
+- Universe layers (DISCOVERY ⊇ RESEARCH ⊇ PAPER_EXECUTION ⊇ LIVE_MANUAL;
+  LIVE_AUTONOMOUS intentionally not implemented) with deterministic equity and
+  crypto filters (`src/lib/universe/*`), server `UNIVERSE_DENYLIST`, and a
+  mandatory crypto fee model (25 bps base taker + half-spread + impact).
+- Deterministic candidate ranking; MAX_AI_CANDIDATES=8 hard cap — the whole
+  market is never prompted.
+- Auto-managed allowlist sync with `EXECUTION_UNIVERSE_CHANGED` audits;
+  held positions never deactivated (crypto symbols normalized BTCUSD↔BTC/USD);
+  **exits are always allowed for known symbols even after deactivation**
+  (engine `symbol_approved` rule, tested).
+- `/scanner` page (counts, ranked candidates with score components, rejection
+  reasons with filters, worker health, universe-change history); explicit
+  system states replace "LEARNER IDLE" (sidebar: SCANNER ACTIVE / MONITORING /
+  LEARNING SCHEDULED).
+- Serverless baseline cron `/api/cron/universe` every 6h (+15m offset);
+  manual UNIVERSE_REFRESH admin job.
+- Always-on worker (`worker/`, self-contained Node ≥22, no order code):
+  equity + crypto WebSocket streams, auto-reconnect with backoff, REST
+  fallback probe, 60s heartbeats → `worker_heartbeats`, stream-health events,
+  health HTTP endpoint, 5-min scan cadence, 6h universe trigger. Deploy via
+  Railway/Fly per `worker/README.md` (needs owner account — pending).
+- Migration `0007_dynamic_universe_and_scanner.sql` (spec said 0006; taken) —
+  applied + verified.
+
+## Production verification
+- First live refresh: **13,852 equities + 36 crypto pairs discovered**,
+  89 research-eligible, 40 paper-execution eligible from the bounded pool,
+  24 liquid symbols auto-activated (AAPL, MSFT, NVDA, GOOGL, …); top-ranked
+  candidate IWM (87.9). Rejection reasons recorded per symbol.
+- Found+fixed in first run: crypto volume floor was global-scaled while
+  Alpaca venue volume is small → venue-scaled $50k floor; exit-trap on
+  deactivated symbols → exits now always allowed; crypto held-position
+  symbol normalization. Crypto pairs re-qualify automatically on the next
+  6-hour refresh.
+- Tests: **192 unit + 18 e2e**, lint/typecheck/build clean. Deployed.
+
+## Intentionally disabled / pending
+- LIVE_AUTONOMOUS universe: not implemented by design.
+- Crypto live execution: disabled (paper research/execution only).
+- Worker deployment: requires owner's Railway/Fly account (steps in
+  worker/README.md). Without it the 6h cron baseline still scans.
+
+## Next recommended action
+Deploy the worker to Railway for 24/7 streaming freshness, then watch
+/scanner over a week of refresh cycles before widening any thresholds.
