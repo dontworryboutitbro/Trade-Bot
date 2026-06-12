@@ -68,8 +68,11 @@ export function Autopilot({ mode }: { mode: TradingMode }) {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    setState(loadPersisted());
-    setHydrated(true);
+    const id = setTimeout(() => {
+      setState(loadPersisted());
+      setHydrated(true);
+    }, 0);
+    return () => clearTimeout(id);
   }, []);
   const [marketOpen, setMarketOpen] = useState<boolean | null>(null);
   const [lastAction, setLastAction] = useState<string>("");

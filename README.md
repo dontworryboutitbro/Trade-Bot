@@ -181,3 +181,41 @@ All external APIs are mocked in tests; no credentials are required or contacted.
 
 See [SECURITY.md](SECURITY.md) for the threat model and [HANDOFF.md](HANDOFF.md) for current
 project status.
+
+## Strategy Lab v2 (upgrade)
+
+The app now includes a research layer on top of the original pipeline:
+
+- **Strategy Lab** (`/strategy-lab`): five interpretable strategies (trend
+  pullback, relative momentum, mean reversion, defensive rotation, AI
+  discretionary) with deterministic entry/exit rules, regime eligibility,
+  per-strategy paper stats, and deterministic promotion/demotion gates.
+  Promotion never reaches live automatically; `LIVE_MANUAL_CANDIDATE` is the
+  ceiling and the live ceremonies still apply.
+- **Backtesting**: daily-bar engine with next-open fills, transaction-cost and
+  slippage assumptions, no look-ahead (tested), full metrics (Sharpe, Sortino,
+  profit factor, expectancy, drawdown, costs) and **walk-forward validation**
+  with an out-of-sample score and overfitting warnings.
+- **Market-data quality layer**: every quote becomes a typed snapshot
+  (bid/ask/spread bps/age/liquidity); stale or degraded data blocks execution.
+- **Execution-cost model + order policy**: estimated fill, bid-ask cost,
+  impact; limit orders preferred, market orders never sent into wide spreads;
+  per-symbol / post-loss / post-rejection cooldowns.
+- **Market-regime engine**: transparent SPY-based classifier
+  (RISK_ON_TREND … VOLATILITY_SPIKE) gates strategies and is stored with every
+  proposal and journal entry.
+- **Paper Journal** (`/paper-journal`): every executed decision with thesis,
+  counterargument, invalidation condition, quote snapshot, cost estimate;
+  round-trip P/L before/after estimated costs; CSV export.
+- **Cross-Market Research** (`/cross-market`): read-only Polymarket (Gamma +
+  public CLOB) vs model-based external probabilities. Reports *divergence*
+  (never "arbitrage" unless settlement genuinely matches — and it labels
+  mismatches). No wallet, no execution, no path to Alpaca.
+- **Optional Discord alerts**: set `DISCORD_WEBHOOK_URL` (server-only).
+- **CI**: `.github/workflows/ci.yml` runs lint, typecheck, unit tests, build,
+  and Playwright on every push/PR.
+
+Interpretation notes: estimated costs are model-based (spread + participation
+impact), Alpaca paper fills are optimistic vs live, IEX feed quotes can differ
+from consolidated tape, and a positive backtest is **not** proof a strategy
+works — the walk-forward warnings exist precisely for that reason.

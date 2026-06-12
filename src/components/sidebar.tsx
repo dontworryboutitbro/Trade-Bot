@@ -5,8 +5,11 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BarChart3,
+  BookOpenText,
+  FlaskConical,
   Layers,
   LayoutDashboard,
+  Scale,
   Settings,
   Wand2,
 } from "lucide-react";
@@ -17,6 +20,9 @@ const links = [
   { href: "/positions", label: "Positions", icon: Layers },
   { href: "/activity", label: "Activity", icon: Activity },
   { href: "/performance", label: "Performance", icon: BarChart3 },
+  { href: "/strategy-lab", label: "Strategy Lab", icon: FlaskConical },
+  { href: "/paper-journal", label: "Paper Journal", icon: BookOpenText },
+  { href: "/cross-market", label: "Cross-Market", icon: Scale },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/setup", label: "Setup", icon: Wand2 },
 ];

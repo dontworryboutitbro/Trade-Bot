@@ -17,6 +17,7 @@ import type {
   AuditEventRow,
   CronRunRow,
   HealthCheckRow,
+  JournalEntryRow,
   NewProposalInput,
   NotificationRow,
   PortfolioSnapshotRow,
@@ -47,6 +48,11 @@ function mapProposal(row: any): StoredProposal {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     stopLossPct: row.stop_loss_pct === null ? null : Number(row.stop_loss_pct),
+    strategyId: row.strategy_id ?? null,
+    counterargument: row.counterargument ?? null,
+    invalidationCondition: row.invalidation_condition ?? null,
+    intendedHoldingDays: row.intended_holding_days ?? null,
+    regimeAtCreation: row.regime_at_creation ?? null,
   };
 }
 
@@ -272,6 +278,11 @@ export class SupabaseStore implements Store {
           expires_at: input.expiresAt,
           status: input.status,
           stop_loss_pct: input.stopLossPct ?? null,
+          strategy_id: input.strategyId ?? null,
+          counterargument: input.counterargument ?? null,
+          invalidation_condition: input.invalidationCondition ?? null,
+          intended_holding_days: input.intendedHoldingDays ?? null,
+          regime_at_creation: input.regimeAtCreation ?? null,
         })
         .select()
         .single(),
@@ -478,6 +489,137 @@ export class SupabaseStore implements Store {
       .in("status", OPEN_ORDER_STATUSES);
     if (error) throw new Error(`Supabase error: ${error.message}`);
     return (count ?? 0) > 0;
+  }
+
+  async createJournalEntry(entry: Omit<JournalEntryRow, "id" | "createdAt">): Promise<void> {
+    await this.run(
+      this.db.from("paper_journal_entries").insert({
+        environment: entry.environment,
+        proposal_id: entry.proposalId,
+        order_id: entry.orderId,
+        symbol: entry.symbol,
+        side: entry.side,
+        quantity: entry.quantity,
+        strategy_id: entry.strategyId,
+        regime: entry.regime,
+        confidence: entry.confidence,
+        thesis: entry.thesis,
+        counterargument: entry.counterargument,
+        invalidation_condition: entry.invalidationCondition,
+        quote_snapshot: entry.quoteSnapshot ?? null,
+        cost_estimate: entry.costEstimate ?? null,
+        fill_price: entry.fillPrice,
+        data_quality_ok: entry.dataQualityOk,
+        rules_followed: entry.rulesFollowed,
+        lessons: entry.lessons,
+      }),
+    );
+  }
+
+  async listJournalEntries(filter?: {
+    environment?: Environment;
+    strategyId?: string;
+    limit?: number;
+  }): Promise<JournalEntryRow[]> {
+    let query = this.db
+      .from("paper_journal_entries")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(filter?.limit ?? 200);
+    if (filter?.environment) query = query.eq("environment", filter.environment);
+    if (filter?.strategyId) query = query.eq("strategy_id", filter.strategyId);
+    const rows = await this.many<any>(query);
+    return rows.map((row) => ({
+      id: row.id,
+      environment: row.environment,
+      proposalId: row.proposal_id,
+      orderId: row.order_id,
+      symbol: row.symbol,
+      side: row.side,
+      quantity: Number(row.quantity),
+      strategyId: row.strategy_id,
+      regime: row.regime,
+      confidence: row.confidence === null ? null : Number(row.confidence),
+      thesis: row.thesis,
+      counterargument: row.counterargument,
+      invalidationCondition: row.invalidation_condition,
+      quoteSnapshot: row.quote_snapshot,
+      costEstimate: row.cost_estimate,
+      fillPrice: row.fill_price === null ? null : Number(row.fill_price),
+      dataQualityOk: row.data_quality_ok,
+      rulesFollowed: row.rules_followed,
+      lessons: row.lessons,
+      createdAt: row.created_at,
+    }));
+  }
+
+  async saveBacktestRun(run: {
+    strategyId: string;
+    config: unknown;
+    startDate: string;
+    endDate: string;
+    metrics: unknown;
+    walkForward: unknown;
+    warnings: string[];
+  }): Promise<void> {
+    await this.run(
+      this.db.from("backtest_runs").insert({
+        strategy_id: run.strategyId,
+        config: run.config,
+        start_date: run.startDate || null,
+        end_date: run.endDate || null,
+        metrics: run.metrics,
+        walk_forward: run.walkForward,
+        warnings: run.warnings,
+      }),
+    );
+  }
+
+  async listBacktestRuns(limit = 50) {
+    const rows = await this.many<any>(
+      this.db
+        .from("backtest_runs")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(limit),
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      strategyId: row.strategy_id,
+      startDate: row.start_date ?? "",
+      endDate: row.end_date ?? "",
+      metrics: row.metrics,
+      walkForward: row.walk_forward,
+      warnings: row.warnings ?? [],
+      createdAt: row.created_at,
+    }));
+  }
+
+  async saveCrossMarketSnapshot(row: {
+    key: string;
+    midpoint: number | null;
+  }): Promise<void> {
+    await this.run(
+      this.db.from("cross_market_snapshots").insert({
+        event_key: row.key,
+        midpoint: row.midpoint,
+        payload: row as unknown as Record<string, unknown>,
+      }),
+    );
+  }
+
+  async listCrossMarketHistory(key: string, days: number): Promise<number[]> {
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const rows = await this.many<any>(
+      this.db
+        .from("cross_market_snapshots")
+        .select("midpoint, captured_at")
+        .eq("event_key", key)
+        .gte("captured_at", cutoff)
+        .order("captured_at", { ascending: true })
+        .limit(200),
+    );
+    return rows.filter((r) => r.midpoint !== null).map((r) => Number(r.midpoint));
   }
 
   async createStopRule(rule: Omit<StopRule, "id" | "createdAt" | "status">): Promise<void> {

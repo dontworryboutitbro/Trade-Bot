@@ -24,10 +24,38 @@ export async function alert(input: {
     const store = await getStore();
     await store.createNotification(input);
     await sendEmailAlert(input).catch(() => undefined);
+    await sendDiscordAlert(input).catch(() => undefined);
   } catch (error) {
     // Never let alerting failures break the calling flow.
     console.error("alert() failed:", error instanceof Error ? error.message : error);
   }
+}
+
+// Discord webhook alerts (optional, server-only). Per-type cooldown prevents
+// spam; failures never break risk controls. Orders are NEVER sent to Discord —
+// only human-readable notifications.
+const discordCooldowns = new Map<string, number>();
+const DISCORD_COOLDOWN_MS = 10 * 60 * 1000;
+
+async function sendDiscordAlert(input: {
+  notificationType: string;
+  severity: Severity;
+  title: string;
+  message: string;
+}): Promise<void> {
+  const webhook = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhook) return;
+  if (input.severity === "INFO" && input.notificationType !== "CROSS_MARKET_DIVERGENCE") return;
+  const last = discordCooldowns.get(input.notificationType) ?? 0;
+  if (Date.now() - last < DISCORD_COOLDOWN_MS) return;
+  discordCooldowns.set(input.notificationType, Date.now());
+  await fetch(webhook, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      content: `**[${input.severity}] ${input.title}**\n${input.message.slice(0, 1500)}`,
+    }),
+  });
 }
 
 async function sendEmailAlert(input: {

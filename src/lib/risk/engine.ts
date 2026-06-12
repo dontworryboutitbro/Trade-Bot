@@ -17,6 +17,9 @@ import type {
 } from "@/lib/types";
 import { canExecuteOrders, modeToEnvironment } from "@/lib/types";
 import { MAX_QUOTE_AGE_MS } from "./defaults";
+import { assessQuote } from "@/lib/market-data/quality";
+import type { QuoteSnapshot } from "@/lib/market-data/types";
+import { assessExecutionCost, type ExecutionEstimate } from "@/lib/execution/cost-model";
 
 export interface RiskContext {
   proposal: TradeProposal;
@@ -43,6 +46,14 @@ export interface RiskContext {
   proposalAlreadyExecuted: boolean;
   /** Evaluation timestamp; injectable for tests. */
   now?: Date;
+  /** Typed quote snapshot with bid/ask/spread/liquidity (null = unavailable). */
+  quoteSnapshot?: QuoteSnapshot | null;
+  /** Execution-cost estimate for this order (null = not estimable). */
+  costEstimate?: ExecutionEstimate | null;
+  /** Active cooldown reasons computed from order history (empty = none). */
+  cooldownReasons?: string[];
+  /** Strategy regime eligibility: null skips the check (no strategy attached). */
+  regimeEligibility?: { activeRegime: string; approved: boolean } | null;
 }
 
 type Check = (ctx: RiskContext) => RiskCheckResult;
@@ -84,7 +95,7 @@ const checkTradingMode: Check = (ctx) => {
 
 const checkActionable: Check = (ctx) => {
   const a = ctx.proposal.action;
-  if (a === "HOLD" || a === "NO_ACTION") {
+  if (a === "HOLD" || a === "NO_ACTION" || a === "NO_TRADE") {
     return fail("actionable", `Action ${a} is not an executable trade.`);
   }
   if (ctx.proposal.quantity <= 0) {
@@ -326,6 +337,53 @@ const checkAccountRestrictions: Check = (ctx) => {
   return pass("account_restrictions", "No blocking account restrictions.");
 };
 
+const checkDataQuality: Check = (ctx) => {
+  // Snapshot layer is additive: when no snapshot infrastructure provided the
+  // basic quote_fresh check still guards staleness. When provided, enforce it.
+  if (ctx.quoteSnapshot === undefined) {
+    return pass("data_quality", "No snapshot layer in this context (legacy path).");
+  }
+  const assessment = assessQuote(ctx.quoteSnapshot ?? null);
+  return assessment.ok
+    ? pass("data_quality", "Quote snapshot passed spread/staleness/liquidity rules.")
+    : fail("data_quality", assessment.reasons.join(" "));
+};
+
+const checkExecutionCost: Check = (ctx) => {
+  if (isSellSide(ctx.proposal.action))
+    return pass("execution_cost", "Sell order; cost cap not applied to exits.");
+  if (ctx.costEstimate === undefined)
+    return pass("execution_cost", "No cost model in this context (legacy path).");
+  const assessment = assessExecutionCost(ctx.costEstimate ?? null);
+  return assessment.ok
+    ? pass(
+        "execution_cost",
+        `Estimated cost ${ctx.costEstimate?.totalEstimatedCostBps.toFixed(1)} bps within cap.`,
+      )
+    : fail("execution_cost", assessment.reasons.join(" "));
+};
+
+const checkCooldowns: Check = (ctx) => {
+  const reasons = ctx.cooldownReasons ?? [];
+  return reasons.length === 0
+    ? pass("cooldown", "No active cooldowns.")
+    : fail("cooldown", reasons.join(" "));
+};
+
+const checkRegimeEligibility: Check = (ctx) => {
+  if (!ctx.regimeEligibility)
+    return pass("regime_eligibility", "No strategy regime restriction applies.");
+  return ctx.regimeEligibility.approved
+    ? pass(
+        "regime_eligibility",
+        `Strategy is approved for the active regime ${ctx.regimeEligibility.activeRegime}.`,
+      )
+    : fail(
+        "regime_eligibility",
+        `Strategy is not eligible in the active market regime ${ctx.regimeEligibility.activeRegime}.`,
+      );
+};
+
 const ALL_CHECKS: Check[] = [
   checkKillSwitch,
   checkStopNewOrders,
@@ -346,6 +404,10 @@ const ALL_CHECKS: Check[] = [
   checkTotalExposure,
   checkPositionCount,
   checkDailyTradeCount,
+  checkDataQuality,
+  checkExecutionCost,
+  checkCooldowns,
+  checkRegimeEligibility,
   checkDailyLoss,
   checkDrawdown,
   checkAccountRestrictions,

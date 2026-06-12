@@ -30,6 +30,22 @@ export interface AiContext {
   recentBars: Record<string, Bar[]>;
   /** Hourly bars for crypto symbols (24/7 markets benefit from intraday structure). */
   hourlyBars: Record<string, Bar[]>;
+  /** Active market regime from the deterministic classifier. */
+  regime?: { regime: string; rules: string[]; metrics: Record<string, number | null> } | null;
+  /** Per-symbol quote quality from the snapshot layer (spread, freshness). */
+  quoteQuality?: Record<string, { spreadBps: number | null; quoteAgeMs: number; ok: boolean }>;
+  /** Deterministic strategy signals with evidence for/against, per symbol. */
+  strategySignals?: {
+    strategyId: string;
+    symbol: string;
+    enter: boolean;
+    evidenceFor: string[];
+    evidenceAgainst: string[];
+  }[];
+  /** Strategies eligible in the current regime. */
+  eligibleStrategies?: { id: string; name: string; entryCriteria: string; sizePct: number }[];
+  /** Symbols currently in a cooldown (do not propose entries). */
+  cooldownSymbols?: string[];
   limits: RiskLimits;
   marketClock: MarketClock;
 }
@@ -43,7 +59,7 @@ const SYSTEM_PROMPT = `You are the investment decision engine for a small privat
 Your role is strictly limited: you analyze the provided portfolio summary and recommend trades as JSON. Deterministic server code — not you — validates, approves, and executes anything. You cannot place orders, change settings, alter risk limits, or access any system.
 
 Rules:
-- NO_ACTION is acceptable and often preferable. Unnecessary turnover destroys returns.
+- NO_TRADE (or NO_ACTION) is acceptable and often the best answer. Abstaining when evidence is weak is rewarded; forced trades are not. Unnecessary turnover destroys returns.
 - Prioritize capital preservation over upside.
 - Never invent data. Use only the figures provided.
 - Never claim certainty about future prices.
@@ -70,11 +86,15 @@ Output: respond with ONLY a JSON object, no markdown fences, no commentary, matc
       "concise_reasoning": "<under 500 characters>",
       "key_risk": "<under 250 characters>",
       "stop_loss_pct": null,
+      "strategy_id": "<one of the provided strategy IDs, or null>",
+      "counterargument": "<strongest argument against this trade, under 300 chars>",
+      "invalidation_condition": "<observable condition that kills the thesis, under 200 chars>",
+      "intended_holding_days": null,
       "expiration_timestamp": "<ISO timestamp, at most ${PROPOSAL_TTL_MINUTES} minutes ahead>"
     }
   ]
 }
-If nothing is worth doing, return one action with action "NO_ACTION" for any symbol.`;
+If nothing is worth doing, return one action with action "NO_TRADE" for any symbol, with concise_reasoning explaining why abstaining is correct today.`;
 
 function summarizeBars(bars: Bar[]): string {
   if (bars.length === 0) return "no data";
@@ -120,10 +140,54 @@ export function buildUserPrompt(ctx: AiContext): string {
     .join("\n");
   const limits = ctx.limits;
 
+  const regimeBlock = ctx.regime
+    ? `Active market regime (deterministic classifier): ${ctx.regime.regime}
+Rules fired: ${ctx.regime.rules.join(" ")}`
+    : "Active market regime: unavailable";
+  const qualityBlock = ctx.quoteQuality
+    ? Object.entries(ctx.quoteQuality)
+        .map(
+          ([symbol, q]) =>
+            `${symbol}: spread ${q.spreadBps?.toFixed(1) ?? "?"} bps, age ${Math.round(q.quoteAgeMs / 1000)}s, ${q.ok ? "OK" : "DEGRADED"}`,
+        )
+        .join("\n")
+    : "(no quote-quality data)";
+  const strategiesBlock = ctx.eligibleStrategies?.length
+    ? ctx.eligibleStrategies
+        .map((s) => `${s.id} — ${s.name}. Entry: ${s.entryCriteria} Size: ~${s.sizePct}% of equity.`)
+        .join("\n")
+    : "(no strategies eligible in this regime — strongly prefer NO_TRADE)";
+  const signalsBlock = ctx.strategySignals?.length
+    ? ctx.strategySignals
+        .map(
+          (s) =>
+            `${s.strategyId} on ${s.symbol}: ${s.enter ? "ENTRY SIGNAL" : "no entry"}
+  + ${s.evidenceFor.join(" ") || "(none)"}
+  - ${s.evidenceAgainst.join(" ") || "(none)"}`,
+        )
+        .join("\n")
+    : "(no mechanical signals today)";
+  const cooldownBlock = ctx.cooldownSymbols?.length
+    ? `Symbols in cooldown (do NOT propose entries): ${ctx.cooldownSymbols.join(", ")}`
+    : "No symbols in cooldown.";
+
   return `PORTFOLIO REVIEW REQUEST
 
 Trading mode: ${ctx.mode}
 Market: ${ctx.marketClock.isOpen ? "OPEN" : "CLOSED"} (next open ${ctx.marketClock.nextOpen}, next close ${ctx.marketClock.nextClose})
+
+${regimeBlock}
+
+Eligible strategies for this regime (use strategy_id in your response):
+${strategiesBlock}
+
+Deterministic strategy signals with evidence for and against:
+${signalsBlock}
+
+Quote quality (degraded symbols will be rejected by the risk engine):
+${qualityBlock}
+
+${cooldownBlock}
 
 Account:
 - Equity: $${ctx.account.equity.toFixed(2)}
@@ -241,6 +305,10 @@ export class MockDecisionClient implements AiDecisionClient {
               "Mock engine: portfolio is at target structure or cash is insufficient; no trade warranted.",
             key_risk: "None — no position change.",
             stop_loss_pct: null,
+            strategy_id: null,
+            counterargument: null,
+            invalidation_condition: null,
+            intended_holding_days: null,
             expiration_timestamp: expires.toISOString(),
           },
         ],
@@ -260,6 +328,10 @@ export class MockDecisionClient implements AiDecisionClient {
           concise_reasoning: `Mock engine: ${pick.symbol} is the lowest-priced approved ETF not yet held; a single share adds diversification within all limits.`,
           key_risk: "Broad market drawdown affects all equity ETFs.",
           stop_loss_pct: 5,
+          strategy_id: "ai-discretionary",
+          counterargument: "Diversification benefit is marginal at this portfolio size.",
+          invalidation_condition: "Position falls 5% below entry.",
+          intended_holding_days: 30,
           expiration_timestamp: expires.toISOString(),
         },
       ],
