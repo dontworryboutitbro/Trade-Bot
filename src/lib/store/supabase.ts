@@ -116,6 +116,7 @@ export class SupabaseStore implements Store {
       stopNewOrders: row.stop_new_orders,
       maximumLiveFundedBalance: Number(row.maximum_live_funded_balance),
       aiEvaluationFrequency: row.ai_evaluation_frequency,
+      pilotCapitalStage: row.pilot_capital_stage ?? "CANARY_100",
     };
   }
 
@@ -128,6 +129,8 @@ export class SupabaseStore implements Store {
       update.maximum_live_funded_balance = patch.maximumLiveFundedBalance;
     if (patch.aiEvaluationFrequency !== undefined)
       update.ai_evaluation_frequency = patch.aiEvaluationFrequency;
+    if (patch.pilotCapitalStage !== undefined)
+      update.pilot_capital_stage = patch.pilotCapitalStage;
     await this.run(this.db.from("app_settings").update(update).eq("id", 1));
     return this.getSettings();
   }

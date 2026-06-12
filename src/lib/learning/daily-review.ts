@@ -486,6 +486,55 @@ export async function runDailyLearning(): Promise<DailyLearningReport> {
   };
 
   await store.putLearningRecord("learning_runs", { kind: "daily", date: marketDate }, report);
+
+  // Daily live-pilot report (only when a live mode is active).
+  if (environment === "LIVE") {
+    const { getPilotConfig, stageCapitalUsd } = await import("@/lib/pilot/config");
+    const { getStreamHealth } = await import("@/lib/streaming/market-stream");
+    const config = getPilotConfig();
+    const stage = settings.pilotCapitalStage ?? "CANARY_100";
+    const liveOrdersToday = orders.filter((o) => o.submittedAt.slice(0, 10) === marketDate);
+    let positions: import("@/lib/types").Position[] = [];
+    try {
+      positions = await getBrokerageClient(mode).getPositions();
+    } catch {
+      positions = [];
+    }
+    const livePilotReport = {
+      marketDate,
+      mode,
+      capitalStage: stage,
+      enabledCapitalUsd: stageCapitalUsd(stage, config),
+      equity,
+      cash,
+      deployedCapitalUsd: positions.reduce((s, p) => s + p.marketValue, 0),
+      positions: positions.map((p) => ({ symbol: p.symbol, qty: p.quantity, value: p.marketValue, unrealizedPl: p.unrealizedPl })),
+      ordersToday: liveOrdersToday.length,
+      fills: liveOrdersToday.filter((o) => o.status === "FILLED").length,
+      rejected: liveOrdersToday.filter((o) => ["REJECTED", "FAILED"].includes(o.status)).length,
+      cancellations: liveOrdersToday.filter((o) => o.status === "CANCELED").length,
+      unrealizedPlUsd: positions.reduce((s, p) => s + p.unrealizedPl, 0),
+      realizedPlTodayUsd: tripToday.reduce((s, t) => s + t.plUsd, 0),
+      estimatedCostsTodayUsd: tripToday.reduce((s, t) => s + t.estimatedCostsUsd, 0),
+      drawdownPct: lastSnapshot?.drawdownPct ?? null,
+      regime: regime.regime,
+      killSwitch: settings.globalKillSwitch,
+      streaming: getStreamHealth().status,
+      dataQualityIncidents,
+      manualApprovals: auditEvents.filter(
+        (e) => e.action === "PROPOSAL_APPROVED" && e.createdAt.slice(0, 10) === marketDate,
+      ).length,
+      manualRejections: auditEvents.filter(
+        (e) => e.action === "PROPOSAL_REJECTED" && e.createdAt.slice(0, 10) === marketDate,
+      ).length,
+      reviewItems,
+    };
+    await store.putLearningRecord(
+      "learning_runs",
+      { kind: "live_pilot_report", date: marketDate },
+      livePilotReport,
+    );
+  }
   await audit({
     actorType: "SYSTEM",
     actorId: "learn-daily",

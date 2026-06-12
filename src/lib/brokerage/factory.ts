@@ -50,6 +50,7 @@ export function getBrokerageClient(mode: TradingMode): BrokerageClient {
       return new AlpacaPaperBrokerageClient();
     case "LIVE_LOCKED":
       return new AlpacaLiveBrokerageClient(true);
+    case "LIVE_MANUAL_PILOT":
     case "LIVE_MANUAL":
     case "LIVE_AUTONOMOUS":
       return new AlpacaLiveBrokerageClient(false);

@@ -58,6 +58,8 @@ export interface RiskContext {
   hasPortfolioSnapshot?: boolean;
   /** Calibration-adjusted minimum confidence for autonomous entries (tighten-only). */
   calibrationMinConfidence?: number | null;
+  /** Live-pilot runtime context; REQUIRED when tradingMode is LIVE_MANUAL_PILOT. */
+  pilot?: import("@/lib/pilot/config").PilotContext | null;
 }
 
 type Check = (ctx: RiskContext) => RiskCheckResult;
@@ -401,7 +403,12 @@ const checkAccountRestrictions: Check = (ctx) => {
  * detail (manual review still sees it on the proposal card).
  */
 function failsClosed(mode: TradingMode): boolean {
-  return mode === "PAPER_AUTONOMOUS" || mode === "LIVE_MANUAL" || mode === "LIVE_AUTONOMOUS";
+  return (
+    mode === "PAPER_AUTONOMOUS" ||
+    mode === "LIVE_MANUAL_PILOT" ||
+    mode === "LIVE_MANUAL" ||
+    mode === "LIVE_AUTONOMOUS"
+  );
 }
 
 const checkDataQuality: Check = (ctx) => {
@@ -496,6 +503,81 @@ const checkRegimeEligibility: Check = (ctx) => {
       );
 };
 
+/**
+ * LIVE_MANUAL_PILOT hard limits. Stricter than every other layer; configured
+ * only via server env vars + the audited capital stage. The AI cannot change
+ * any of these. Inactive outside pilot mode.
+ */
+const checkPilotLimits: Check = (ctx) => {
+  if (ctx.tradingMode !== "LIVE_MANUAL_PILOT") {
+    return pass("pilot_limits", "Not in live-pilot mode; pilot caps not applicable.");
+  }
+  if (!ctx.pilot) {
+    return fail("pilot_limits", "Pilot context missing — cannot verify pilot caps (fail-closed).");
+  }
+  const p = ctx.pilot;
+  const problems: string[] = [];
+  const sell = isSellSide(ctx.proposal.action);
+  const price = ctx.quote?.price ?? 0;
+  const notional = price * ctx.proposal.quantity;
+
+  if (p.enabledCapitalUsd <= 0) {
+    problems.push(`Capital stage ${p.capitalStage} enables $0 — review required before trading.`);
+  }
+  if (ctx.account.equity > p.enabledCapitalUsd + 25) {
+    problems.push(
+      `Live account equity $${ctx.account.equity.toFixed(2)} exceeds the enabled pilot capital $${p.enabledCapitalUsd} — withdraw excess at the brokerage first.`,
+    );
+  }
+  if (p.assetClass === "crypto") problems.push("Crypto execution is disabled in the live pilot.");
+  if (!p.reconciliationHealthy) problems.push("Order-state reconciliation is unhealthy.");
+  if (!sell) {
+    if (notional > p.config.maxPositionUsd) {
+      problems.push(`Order $${notional.toFixed(2)} exceeds the $${p.config.maxPositionUsd} pilot position cap.`);
+    }
+    if (ctx.positions.length >= p.config.maxPositions &&
+        !ctx.positions.some((pos) => pos.symbol === ctx.proposal.symbol)) {
+      problems.push(`Pilot allows at most ${p.config.maxPositions} simultaneous positions.`);
+    }
+    if (p.entriesToday >= p.config.maxEntriesPerDay) {
+      problems.push(`Pilot allows at most ${p.config.maxEntriesPerDay} new entries per day.`);
+    }
+    if (p.dailyLossUsd >= p.config.maxDailyLossUsd) {
+      problems.push(`Daily loss $${p.dailyLossUsd.toFixed(2)} reached the $${p.config.maxDailyLossUsd} pilot halt.`);
+    }
+    if (p.weeklyLossPct >= p.config.maxWeeklyLossPct) {
+      problems.push(`Weekly loss ${p.weeklyLossPct.toFixed(2)}% reached the ${p.config.maxWeeklyLossPct}% pilot halt.`);
+    }
+    if (!p.streamingFreshnessVerifiable) {
+      problems.push("Quote freshness cannot be verified (stream degraded and REST snapshot failed) — new entries blocked; exits remain allowed.");
+    }
+    const snap = ctx.quoteSnapshot;
+    if (!snap) {
+      problems.push("No quote snapshot — pilot entries require verified fresh quotes.");
+    } else {
+      if (snap.spreadBps !== null && snap.spreadBps > p.config.maxSpreadBps) {
+        problems.push(`Spread ${snap.spreadBps.toFixed(1)} bps exceeds the pilot's ${p.config.maxSpreadBps} bps cap.`);
+      }
+      if (snap.quoteAgeMs > p.config.maxQuoteAgeSeconds * 1000) {
+        problems.push(`Quote ${Math.round(snap.quoteAgeMs / 1000)}s old exceeds the pilot's ${p.config.maxQuoteAgeSeconds}s cap.`);
+      }
+    }
+    if (ctx.costEstimate && ctx.costEstimate.totalEstimatedCostBps > p.config.maxSlippageBps) {
+      problems.push(
+        `Estimated execution cost ${ctx.costEstimate.totalEstimatedCostBps.toFixed(1)} bps exceeds the pilot's ${p.config.maxSlippageBps} bps cap.`,
+      );
+    }
+  }
+  return problems.length === 0
+    ? pass(
+        "pilot_limits",
+        sell
+          ? "Pilot exit permitted."
+          : "Within pilot caps; order will be submitted as a limit order.",
+      )
+    : fail("pilot_limits", problems.join(" "));
+};
+
 const ALL_CHECKS: Check[] = [
   checkKillSwitch,
   checkStopNewOrders,
@@ -512,6 +594,7 @@ const ALL_CHECKS: Check[] = [
   checkCash,
   checkAccountFreshness,
   checkIntradayMargin,
+  checkPilotLimits,
   checkLiveFundedBalance,
   checkOrderSize,
   checkSymbolConcentration,

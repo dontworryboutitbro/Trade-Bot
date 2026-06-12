@@ -175,3 +175,70 @@ additive safety:
   autonomous 1× cap, sell exemption).
 - Totals: 160 unit/integration tests, 14 e2e — all passing; deployed to
   production.
+
+
+# Step 19 — Controlled Live-Money Pilot Readiness (2026-06-12)
+
+## Built
+- **LIVE_MANUAL_PILOT mode**: reachable only from LIVE_LOCKED, full ceremony +
+  dedicated phrase `ENABLE LIVE PILOT TRADING` + ALL mandatory readiness drills
+  passing within 7 days (server-enforced in changeTradingMode). Manual approval
+  per order; limit-orders-only (market plans converted to marketable limits);
+  long-only, cash-only, allowlist-only, no crypto, regular hours; fractional
+  shares (4 dp) so a $50 cap works on $700 ETFs.
+- **Pilot hard caps** (`pilot_limits` — engine now 30 checks): $250 max capital
+  via env ceiling, $50/position, 2 positions, 2 entries/day, $10 daily-loss
+  halt, 3% weekly-loss halt, 25 bps spread cap, 60s quote-age cap, 30 bps
+  slippage cap. All env-var configurable (server-only); capital stage stored in
+  app_settings and changed only via the audited typed-confirmation route.
+  Pilot caps LAYER ON TOP of existing limits (10%/60% concentration etc. still
+  apply — nothing was loosened).
+- **Readiness drills** (`/settings/live-readiness` + `/api/admin/drills`):
+  14 automated drills (kill switch, duplicate-order idempotency, WS-disconnect/
+  REST fallback, stale-quote/wide-spread/low-liquidity rejection, missing
+  account/portfolio/quote snapshots, invalid AI response, DB write guard,
+  Discord (optional), live-key separation, browser secret scan, audit round
+  trip). Results persisted; activation gate checks the latest run.
+- **Capital stages**: CANARY_100 / PILOT_250 / PILOT_500 / REVIEW_REQUIRED($0);
+  manual + typed confirmation + CRITICAL audit + alert; never automatic.
+- **Feed visibility**: IEX — LIMITED COVERAGE warning displayed; SIP never
+  assumed.
+- **Daily live-pilot report**: emitted by the nightly learner whenever a live
+  mode is active (capital, deployment, fills, rejections, P/L, costs,
+  drawdown, approvals, streaming, kill-switch state, review items).
+- **Paper-capital realism**: TARGET_LIVE_PILOT_CAPITAL=250; warning when paper
+  equity exceeds 4× the target.
+- Migration `0006_live_pilot.sql`: trading_mode enum value + pilot_capital_stage
+  column (idempotent; rollback notes inline).
+
+## Verification
+- lint ✅ typecheck ✅ **178/178 unit** ✅ **17/17 e2e** ✅ build ✅
+- e2e proves: pilot unreachable without ceremony; drills run green in mock;
+  stage changes need the typed phrase; readiness page renders.
+
+## What remains DISABLED
+- All live trading. Current mode is unchanged. No live keys exist in any env.
+- LIVE_AUTONOMOUS remains fully locked. Cross-market and learning systems have
+  no execution path. Streaming entry-gating fails closed.
+
+## Runbook
+- **Run readiness drills**: Settings → Live readiness → Run all drills (or
+  POST /api/admin/drills). Valid 7 days.
+- **Enable the pilot** (deliberately long): fund an isolated Alpaca live
+  account with ≤$100 (CANARY) → add ALPACA_LIVE_API_KEY/SECRET to Vercel env →
+  redeploy → Settings → mode LIVE_LOCKED → verify balances → run drills →
+  mode LIVE_MANUAL_PILOT → ceremony (connectivity, kill-switch test,
+  acknowledgments, type ENABLE LIVE PILOT TRADING).
+- **Stop all trading immediately**: top-bar KILL SWITCH (any page, mobile too);
+  it persists across restarts. Then Settings → cancel open orders.
+- **Rotate keys**: regenerate at Alpaca/Supabase/Anthropic → update Vercel env
+  vars → redeploy → verify Settings → Diagnostics.
+- **Revoke live access**: delete ALPACA_LIVE_* from Vercel env + redeploy, or
+  regenerate (invalidate) the keys at Alpaca. Mode falls back safely — the
+  factory fails loudly without live credentials.
+- **Reduce enabled capital**: Settings → Live readiness → stage REVIEW_REQUIRED
+  ($0, blocks new entries) or any lower stage; reductions need the same typed
+  confirmation but are always allowed.
+- **Roll back a deployment**: Vercel dashboard → Deployments → previous build →
+  Promote to Production (or `vercel rollback`). DB migrations 0001–0006 are
+  additive; rollback SQL is in each migration's comments.

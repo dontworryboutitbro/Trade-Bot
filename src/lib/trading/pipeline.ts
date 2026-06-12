@@ -15,6 +15,9 @@ import { planOrder } from "@/lib/execution/order-policy";
 import { activeCooldowns } from "@/lib/execution/cooldowns";
 import { classifyRegime, type RegimeReading } from "@/lib/regime/engine";
 import { buildObservation } from "@/lib/learning/features";
+import { getPilotConfig, stageCapitalUsd, type PilotContext } from "@/lib/pilot/config";
+import { getStreamHealth, streamFreshnessVerifiable } from "@/lib/streaming/market-stream";
+import { assessQuote as assessQuoteQuality } from "@/lib/market-data/quality";
 import { getStrategy, STRATEGIES } from "@/lib/strategies/definitions";
 import type { Store as StoreType } from "@/lib/store/types";
 import { alert, audit } from "@/lib/services";
@@ -216,6 +219,68 @@ async function buildRiskContext(
     regimeEligibility,
     hasPortfolioSnapshot: snapshots.length > 0,
     calibrationMinConfidence: await getCalibrationMinConfidence(store),
+    pilot: await buildPilotContext(store, mode, environment, proposal.symbol, account, snapshots, quoteSnapshot),
+  };
+}
+
+/** Assemble the live-pilot runtime context (null outside LIVE_MANUAL_PILOT). */
+async function buildPilotContext(
+  store: Store,
+  mode: TradingMode,
+  environment: Environment,
+  symbol: string,
+  account: import("@/lib/types").AccountSnapshot,
+  snapshots: Awaited<ReturnType<Store["listSnapshots"]>>,
+  quoteSnapshot: import("@/lib/market-data/types").QuoteSnapshot | null,
+): Promise<PilotContext | null> {
+  if (mode !== "LIVE_MANUAL_PILOT") return null;
+  const config = getPilotConfig();
+  const settings = await store.getSettings();
+  const capitalStage = settings.pilotCapitalStage ?? "CANARY_100";
+
+  const dayStart = marketDayStartIso();
+  const orders = await store.listOrders({ environment, limit: 100 });
+  const entriesToday = orders.filter(
+    (o) =>
+      o.side === "buy" &&
+      o.submittedAt >= dayStart &&
+      !["REJECTED", "FAILED", "CANCELED"].includes(o.status),
+  ).length;
+
+  const last = snapshots[snapshots.length - 1];
+  const weekAgo = snapshots[Math.max(0, snapshots.length - 6)];
+  const dailyLossUsd = last ? Math.max(0, last.equity - account.equity) : 0;
+  const weeklyLossPct =
+    weekAgo && weekAgo.equity > 0
+      ? Math.max(0, ((weekAgo.equity - account.equity) / weekAgo.equity) * 100)
+      : 0;
+
+  // Reconciliation health: any reconciliation error in the last hour is unhealthy.
+  const recentAudit = await store.listAuditEvents(100);
+  const hourAgo = new Date(Date.now() - 3600_000).toISOString();
+  const reconciliationHealthy = !recentAudit.some(
+    (e) => e.action === "RECONCILIATION_ERROR" && e.createdAt >= hourAgo,
+  );
+
+  const approved = await store.getApprovedSymbols();
+  const assetClass =
+    approved.find((s) => s.symbol === symbol)?.assetClass === "crypto"
+      ? ("crypto" as const)
+      : approved.some((s) => s.symbol === symbol)
+        ? ("us_equity" as const)
+        : ("unknown" as const);
+
+  const restSnapshotOk = quoteSnapshot !== null && assessQuoteQuality(quoteSnapshot).ok;
+  return {
+    config,
+    capitalStage,
+    enabledCapitalUsd: stageCapitalUsd(capitalStage, config),
+    entriesToday,
+    dailyLossUsd,
+    weeklyLossPct,
+    assetClass,
+    reconciliationHealthy,
+    streamingFreshnessVerifiable: streamFreshnessVerifiable(getStreamHealth(), restSnapshotOk),
   };
 }
 
@@ -530,7 +595,9 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
       action: action.action,
       quantity: isCryptoSymbol
         ? Math.round(action.quantity * 1e6) / 1e6
-        : Math.floor(action.quantity),
+        : mode === "LIVE_MANUAL_PILOT"
+          ? Math.round(action.quantity * 1e4) / 1e4 // fractional shares: $50 cap needs them
+          : Math.floor(action.quantity),
       proposedNotional: action.proposed_notional,
       orderType: action.order_type,
       limitPrice: action.order_type === "LIMIT" ? action.limit_price : null,
@@ -752,9 +819,25 @@ export async function executeProposal(
 
   try {
     // Order policy: prefer limit orders; never market into a wide spread.
-    const plan = ctx.quoteSnapshot
+    let plan = ctx.quoteSnapshot
       ? planOrder(proposal.orderType, proposal.limitPrice, side, ctx.quoteSnapshot)
       : { type: proposal.orderType, limitPrice: proposal.limitPrice, policyNote: "No snapshot; AI order type retained." };
+
+    // Live pilot: limit orders ONLY. A market plan is converted to a marketable
+    // limit anchored at the verified mid (a missing snapshot was already a
+    // fail-closed block upstream, so mid is always available here).
+    if (mode === "LIVE_MANUAL_PILOT" && plan.type === "MARKET") {
+      const mid = ctx.quoteSnapshot?.mid ?? ctx.quote?.price;
+      if (!mid) {
+        return { executed: false, reasons: ["Pilot mode requires a verified mid price for limit orders."] };
+      }
+      const buffer = mid * 0.0005;
+      plan = {
+        type: "LIMIT",
+        limitPrice: Math.round((side === "buy" ? mid + buffer : mid - buffer) * 100) / 100,
+        policyNote: "Pilot mode: market order converted to marketable limit (limit-orders-only).",
+      };
+    }
 
     const submitted = await brokerage.submitOrder({
       clientOrderId,

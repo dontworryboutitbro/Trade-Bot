@@ -6,6 +6,7 @@ export type TradingMode =
   | "PAPER_AUTONOMOUS"
   | "LIVE_LOCKED"
   | "LIVE_MANUAL"
+  | "LIVE_MANUAL_PILOT"
   | "LIVE_AUTONOMOUS";
 
 export type Environment = "MOCK" | "PAPER" | "LIVE";
@@ -239,4 +240,6 @@ export interface AppSettings {
   stopNewOrders: boolean;
   maximumLiveFundedBalance: number;
   aiEvaluationFrequency: "DAILY" | "TWICE_DAILY" | "WEEKLY" | "MANUAL_ONLY";
+  /** Live-pilot capital stage; changes are manual + audited. */
+  pilotCapitalStage?: "CANARY_100" | "PILOT_250" | "PILOT_500" | "REVIEW_REQUIRED";
 }

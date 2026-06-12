@@ -27,6 +27,8 @@ const MODE_DESCRIPTIONS: Record<TradingMode, string> = {
   PAPER_MANUAL: "Alpaca paper account. Every trade waits for your approval.",
   PAPER_AUTONOMOUS: "Alpaca paper account. Valid proposals execute automatically.",
   LIVE_LOCKED: "Live account, read-only. Verifies connectivity; can never trade.",
+  LIVE_MANUAL_PILOT:
+    "REAL MONEY pilot: tiny capped capital ($250 max, $50/position, 2 positions, limit orders only). Requires all readiness drills to pass.",
   LIVE_MANUAL: "REAL MONEY. Each trade requires your approval.",
   LIVE_AUTONOMOUS: "REAL MONEY. Valid proposals execute automatically.",
 };
@@ -62,7 +64,7 @@ export function TradingModeCard({ settings }: { settings: AppSettings }) {
       }
       return;
     }
-    if (to === "LIVE_MANUAL" || to === "LIVE_AUTONOMOUS") {
+    if (to === "LIVE_MANUAL_PILOT" || to === "LIVE_MANUAL" || to === "LIVE_AUTONOMOUS") {
       setTarget(to);
       return;
     }
@@ -124,7 +126,12 @@ function LiveActivationWizard({
   onClose: () => void;
   onError: (message: string) => void;
 }) {
-  const phrase = to === "LIVE_MANUAL" ? "ENABLE LIVE MANUAL TRADING" : "ENABLE LIVE AUTONOMOUS TRADING";
+  const phrase =
+    to === "LIVE_MANUAL_PILOT"
+      ? "ENABLE LIVE PILOT TRADING"
+      : to === "LIVE_MANUAL"
+        ? "ENABLE LIVE MANUAL TRADING"
+        : "ENABLE LIVE AUTONOMOUS TRADING";
   const [step, setStep] = useState(1);
   const [connectivityOk, setConnectivityOk] = useState(false);
   const [killSwitchTested, setKillSwitchTested] = useState(false);

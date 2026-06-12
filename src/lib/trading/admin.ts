@@ -168,6 +168,26 @@ export async function changeTradingMode(actor: string, request: ModeChangeReques
     );
   }
 
+  // LIVE_MANUAL_PILOT additionally requires every mandatory readiness drill to
+  // have passed within the validity window. Checked server-side, never the UI.
+  if (request.to === "LIVE_MANUAL_PILOT") {
+    const { getLatestDrillRun, drillsValidForActivation } = await import("@/lib/pilot/drills");
+    const drills = drillsValidForActivation(await getLatestDrillRun());
+    if (!drills.ok) {
+      await audit({
+        actorType: "USER",
+        actorId: actor,
+        action: "MODE_CHANGE_REJECTED",
+        entityType: "app_settings",
+        entityId: null,
+        severity: "WARNING",
+        summary: `LIVE_MANUAL_PILOT activation rejected: ${drills.reason}`,
+        metadata: {},
+      });
+      throw new Error(`Live-pilot activation blocked: ${drills.reason} Run the drills at Settings → Live readiness.`);
+    }
+  }
+
   const validation = validateModeChange(request);
   if (!validation.allowed) {
     await audit({

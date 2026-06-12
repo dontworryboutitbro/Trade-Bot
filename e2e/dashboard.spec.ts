@@ -152,12 +152,38 @@ test.describe("learning engine (mock mode)", () => {
 
 test.describe("live activation safety", () => {
   test("live modes cannot be enabled via the API without the full ceremony", async ({ request }) => {
-    const attempt = await request.post("/api/admin/mode", {
-      data: { from: "MOCK", to: "LIVE_AUTONOMOUS" },
-    });
-    expect(attempt.ok()).toBeFalsy();
+    for (const to of ["LIVE_AUTONOMOUS", "LIVE_MANUAL", "LIVE_MANUAL_PILOT"]) {
+      const attempt = await request.post("/api/admin/mode", { data: { from: "MOCK", to } });
+      expect(attempt.ok()).toBeFalsy();
+    }
     const status = await request.get("/api/status");
     const body = await status.json();
     expect(body.mode).toBe("MOCK");
+  });
+});
+
+test.describe("live readiness (mock mode)", () => {
+  test("readiness page renders with drills, feed warning, and capital stages", async ({ page }) => {
+    await page.goto("/settings/live-readiness");
+    await expect(page.getByRole("heading", { name: "Live readiness" })).toBeVisible();
+    await expect(page.getByText("IEX — LIMITED COVERAGE")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Run all drills" })).toBeVisible();
+    await expect(page.getByText("Live allocation changes require manual approval", { exact: false })).toBeVisible();
+  });
+
+  test("drills run end to end and report mandatory status", async ({ request }) => {
+    const res = await request.post("/api/admin/drills", { data: {} });
+    expect(res.ok()).toBeTruthy();
+    const { run } = await res.json();
+    expect(run.results.length).toBeGreaterThanOrEqual(12);
+    const failed = run.results.filter((r: { mandatory: boolean; status: string }) => r.mandatory && r.status === "FAIL");
+    expect(failed).toEqual([]);
+  });
+
+  test("capital stage changes require the typed confirmation", async ({ request }) => {
+    const bad = await request.post("/api/admin/pilot-stage", {
+      data: { stage: "PILOT_500", confirmation: "yes", reason: "test" },
+    });
+    expect(bad.ok()).toBeFalsy();
   });
 });

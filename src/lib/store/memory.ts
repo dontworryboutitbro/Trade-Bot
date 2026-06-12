@@ -316,6 +316,7 @@ function seedData(): MemoryData {
       stopNewOrders: false,
       maximumLiveFundedBalance: 1000,
       aiEvaluationFrequency: "DAILY",
+      pilotCapitalStage: "CANARY_100",
     },
     limits: {
       MOCK: defaultLimitsFor("MOCK"),

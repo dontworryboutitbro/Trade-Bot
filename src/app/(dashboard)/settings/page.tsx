@@ -40,6 +40,13 @@ export default async function SettingsPage() {
 
       <Card title="Trading mode">
         <TradingModeCard settings={data.settings} />
+        <p className="mt-3 text-xs text-faint">
+          Live pilot preparation (failure drills, capital stages, feed status):{" "}
+          <a href="/settings/live-readiness" className="text-accent underline">
+            Settings → Live readiness
+          </a>
+          .
+        </p>
       </Card>
 
       <Card title={`Risk limits — ${env}`}>
