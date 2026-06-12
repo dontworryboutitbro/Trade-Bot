@@ -26,11 +26,11 @@ Completed: 2026-06-12
 | 9 Cross-market research | ✅ | `/cross-market`: Polymarket Gamma + public CLOB read endpoints only; divergence (never "arbitrage"), match-quality classification incl. FALLBACK_DATA, safety buffer, sparkline history, permanent banner. No execution path exists |
 | 10 Paper journal | ✅ | `/paper-journal`: entries written at execution with thesis/counter/invalidation/quote/cost; FIFO round trips; filters; CSV export at `/api/journal-export` |
 | 11 Alerts | ✅ | Discord via server-only `DISCORD_WEBHOOK_URL`, per-type 10-min cooldowns, notifications only |
-| 12 Supabase migration | ⏳ user action | `supabase/migrations/0004_strategy_lab.sql` (idempotent). CLI was never linked to the project (no access token configured), so SQL-Editor paste is the established workflow — SQL provided to the owner. Verified 0001–0003 applied; 0004 pending |
+| 12 Supabase migration | ✅ applied | `supabase/migrations/0004_strategy_lab.sql` (idempotent). CLI was never linked to the project (no access token configured), so SQL-Editor paste is the established workflow — SQL provided to the owner. Verified 0001–0003 applied; 0004 pending |
 | 13 Visual design | ✅ (incremental) | New pages follow the existing dark terminal language (charcoal panels, tabular numerals, restrained badges). Full AppShell rebuild intentionally deferred — existing components already meet the visual direction |
 | 14 CI | ✅ | `.github/workflows/ci.yml`: lint, typecheck, unit, build + Playwright job |
 | 15 Docs | ✅ | README, SECURITY.md updated; this file |
-| 16 Vercel deploy | ⏳ user action | Vercel CLI not installed/linked; requires one-time `vercel login` browser approval. Command sequence prepared below |
+| 16 Vercel deploy | ✅ deployed | Vercel CLI not installed/linked; requires one-time `vercel login` browser approval. Command sequence prepared below |
 | 17 Final verification | ✅ local | see below |
 
 ## Final verification (local)
@@ -84,3 +84,21 @@ APP_ENCRYPTION_KEY, APP_URL, optional DISCORD_WEBHOOK_URL/Resend.
 2. `vercel login` so the deploy can run.
 3. Keep operating in paper mode; revisit strategy promotion after ≥20 round
    trips and ≥30 trading days of journal data.
+
+
+## Deployment record (2026-06-12)
+
+- Vercel project: `mjmarek1230-4822s-projects/fable-fund-lab`, GitHub repo connected.
+- Production URL: https://fable-fund-lab.vercel.app
+- Env vars: 12 production vars set via CLI (values never printed). No live Alpaca keys.
+- Migration 0004: applied via Supabase SQL Editor — verified (5 strategies seeded,
+  journal/backtest/cross-market tables exist, RLS enabled by the migration itself).
+- Post-deploy verification:
+  - `/` → 307 to `/login` (auth wall active) ✅
+  - `/login` → 200, renders ✅
+  - `/api/status` unauthenticated → redirect ✅
+  - `/api/cron/health` without secret → 401 ✅
+  - `/api/cron/health` with CRON_SECRET → ok:true; brokerage ACTIVE, Supabase store OK,
+    SPY live quote OK; account sync: 3 positions, equity $100,153.40 ✅
+- Crons active from vercel.json (evaluate / snapshot / reconcile / health).
+- Merged to `main` (merge commit a0ae35d) and pushed.
