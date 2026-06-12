@@ -331,3 +331,20 @@ additive safety:
 ## Next recommended action
 Deploy the worker to Railway for 24/7 streaming freshness, then watch
 /scanner over a week of refresh cycles before widening any thresholds.
+
+
+## Worker deployment record (2026-06-12)
+
+- Host: Railway — project `fable-fund-worker` (workspace: dontworryboutitbro's Projects)
+- Health URL: https://fable-fund-worker-production.up.railway.app
+  → `{"ok":true,"equity":"CONNECTED","crypto":"CONNECTED",...}`
+- Env vars set via CLI (values never printed): APP_URL, CRON_SECRET,
+  Supabase URL + service key, Alpaca paper key/secret.
+- Verified: equity + crypto WebSocket streams CONNECTED (16 equities, 6 crypto
+  pairs subscribed; quotes ticking); 60s heartbeats landing in Supabase
+  `worker_heartbeats` (status OK); worker triggered `/api/cron/universe` → 200;
+  REST fallback + reconnect logic in place (first deploy ran credential-less in
+  fallback mode, proving the degraded path works).
+- Dashboard now shows SCANNER ACTIVE while heartbeats are fresh (<3 min).
+- Stop/rollback: Railway → fable-fund-worker → remove service (dashboard falls
+  back to the 6-hour serverless cron automatically).
