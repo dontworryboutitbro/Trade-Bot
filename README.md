@@ -258,3 +258,33 @@ The system now learns from its own paper results — under deterministic control
 The learner can improve parameter selection, calibration, abstention, and
 strategy ranking. It cannot rewrite code, change risk limits, increase
 exposure, touch live modes, or bypass manual approval — by construction.
+
+## Always-on scanner & dynamic universe (Step 20)
+
+The bot no longer needs hand-entered symbols. Alpaca's assets API is the source
+of truth; deterministic filters decide what is merely *visible* vs *tradable*:
+
+```
+DISCOVERY (every active Alpaca asset, metadata only — never tradable by existence)
+  ⊇ RESEARCH (valid fresh quotes + sufficient history)
+    ⊇ PAPER_EXECUTION ($5+ price, ≤35 bps spread, ≥$20M ADDV, 20d seasoning,
+        no OTC/leveraged/inverse/halted/vol-spike, no data incidents)
+      ⊇ LIVE_MANUAL (stricter: $10+, ≤20 bps, ≥$100M ADDV, 60d seasoning)
+LIVE_AUTONOMOUS — intentionally not implemented.
+```
+
+- Crypto has its own filters: USD pairs only, account eligibility verified,
+  24h dollar-volume floor, spread cap, mandatory taker-fee (25 bps base tier)
+  + slippage model, vol-spike rejection. Crypto live execution stays disabled.
+- **Deterministic ranking** (liquidity/spread/trend/relative-strength/vol/
+  freshness) runs before Claude; at most **8 ranked candidates** ever reach a
+  prompt — never the whole market.
+- Eligible assets sync automatically into the allowlist (audited as
+  `EXECUTION_UNIVERSE_CHANGED`); held positions are never deactivated; a
+  server-side `UNIVERSE_DENYLIST` env var provides emergency exclusions.
+- `/scanner` shows universe counts, ranked candidates, per-symbol rejection
+  reasons, worker heartbeats, and stream health.
+- Serverless baseline: `/api/cron/universe` every 6 hours. The optional
+  **always-on worker** (`worker/` — deploy to Railway/Fly, see
+  `worker/README.md`) adds persistent WebSocket quote streams, 60s heartbeats,
+  REST fallback, and a 5-minute scan cadence. It contains no order code.

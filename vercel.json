@@ -5,6 +5,7 @@
     { "path": "/api/cron/reconcile", "schedule": "0 14-21 * * 1-5" },
     { "path": "/api/cron/health", "schedule": "30 13 * * 1-5" },
     { "path": "/api/cron/learn-daily", "schedule": "45 22 * * 1-5" },
-    { "path": "/api/cron/validate-weekly", "schedule": "30 14 * * 6" }
+    { "path": "/api/cron/validate-weekly", "schedule": "30 14 * * 6" },
+    { "path": "/api/cron/universe", "schedule": "15 */6 * * *" }
   ]
 }

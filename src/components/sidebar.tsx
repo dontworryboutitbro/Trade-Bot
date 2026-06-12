@@ -11,6 +11,7 @@ import {
   GraduationCap,
   Layers,
   LayoutDashboard,
+  Radar,
   Scale,
   ScrollText,
   Settings,
@@ -28,6 +29,7 @@ const links = [
   { href: "/learning", label: "Learning Engine", icon: GraduationCap },
   { href: "/paper-journal", label: "Paper Journal", icon: BookOpenText },
   { href: "/cross-market", label: "Cross-Market", icon: Scale },
+  { href: "/scanner", label: "Scanner", icon: Radar },
   { href: "/alerts", label: "Alerts", icon: BellRing },
   { href: "/audit", label: "Audit Log", icon: ScrollText },
   { href: "/settings", label: "Settings", icon: Settings },
@@ -50,7 +52,9 @@ export interface SidebarStatus {
   feed: string;
   supabaseOk: boolean;
   alpacaConfigured: boolean;
-  learnerActive: boolean;
+  /** Explicit system state — never an ambiguous "IDLE" while healthy. */
+  systemState: string;
+  scannerActive: boolean;
   killSwitch: boolean;
 }
 
@@ -119,13 +123,17 @@ export function Sidebar({ status }: { status: SidebarStatus }) {
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="uppercase tracking-[0.1em] text-faint">Learner</span>
+            <span className="uppercase tracking-[0.1em] text-faint">Scanner</span>
             <span className="flex items-center gap-1">
-              {status.learnerActive && <LivePulse tone="magenta" />}
-              <span className={status.learnerActive ? "text-accent" : "text-faint"}>
-                {status.learnerActive ? "ACTIVE" : "IDLE"}
+              {status.scannerActive && <LivePulse tone="magenta" />}
+              <span className={status.scannerActive ? "text-accent" : "text-faint"}>
+                {status.scannerActive ? "ACTIVE" : "6H CRON"}
               </span>
             </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="uppercase tracking-[0.1em] text-faint">System</span>
+            <span className="text-muted">{status.systemState}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="uppercase tracking-[0.1em] text-faint">Kill switch</span>

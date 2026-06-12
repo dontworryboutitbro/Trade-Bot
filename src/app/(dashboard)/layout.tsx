@@ -5,16 +5,32 @@ import { getStore } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-async function isLearnerActive(store: Awaited<ReturnType<typeof getStore>>): Promise<boolean> {
+/**
+ * Explicit system state (20.1): the system is never "IDLE" while healthy —
+ * between scheduled runs it is MONITORING.
+ */
+async function getSystemState(
+  store: Awaited<ReturnType<typeof getStore>>,
+): Promise<{ systemState: string; scannerActive: boolean }> {
   try {
-    const runs = await store.listLearningRecords("learning_runs", {
-      keys: { kind: "daily" },
-      limit: 1,
-    });
-    const last = runs[0]?.createdAt;
-    return Boolean(last && Date.now() - new Date(last).getTime() < 3 * 86_400_000);
+    const now = Date.now();
+    const [heartbeats, dailyRuns] = await Promise.all([
+      store.listLearningRecords("worker_heartbeats", { limit: 1 }),
+      store.listLearningRecords("learning_runs", { keys: { kind: "daily" }, limit: 1 }),
+    ]);
+    const beatAge = heartbeats[0]
+      ? now - new Date(heartbeats[0].createdAt).getTime()
+      : Infinity;
+    const scannerActive = beatAge < 3 * 60_000;
+    const lastDaily = dailyRuns[0] ? now - new Date(dailyRuns[0].createdAt).getTime() : Infinity;
+    const hourUtc = new Date().getUTCHours();
+    let systemState = "MONITORING";
+    if (lastDaily < 30 * 60_000) systemState = "LEARNING RUN";
+    else if (hourUtc >= 21 && hourUtc < 23) systemState = "LEARNING SCHEDULED";
+    else if (scannerActive) systemState = "SCANNER ACTIVE";
+    return { systemState, scannerActive };
   } catch {
-    return false;
+    return { systemState: "MONITORING", scannerActive: false };
   }
 }
 
@@ -22,7 +38,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const store = await getStore();
   const settings = await store.getSettings();
   const config = getConfigStatus();
-  const learnerActive = await isLearnerActive(store);
+  const { systemState, scannerActive } = await getSystemState(store);
 
   return (
     <div className="relative z-10 flex min-h-screen flex-col">
@@ -34,7 +50,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
             feed: "IEX LIMITED",
             supabaseOk: config.supabase && config.supabaseServiceRole,
             alpacaConfigured: config.alpacaPaper,
-            learnerActive,
+            systemState,
+            scannerActive,
             killSwitch: settings.globalKillSwitch,
           }}
         />

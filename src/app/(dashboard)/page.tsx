@@ -95,7 +95,7 @@ export default async function OverviewPage() {
         <div className="space-y-4 lg:col-span-3">
           <Card title="AI Research Engine" glow="violet">
             <div className="space-y-0.5">
-              <StatusRow label="Engine" state={learner.date ? "ACTIVE" : "STANDBY"} tone={learner.date ? "magenta" : "muted"} pulse={Boolean(learner.date)} />
+              <StatusRow label="Engine" state={learner.date ? "MONITORING" : "AWAITING FIRST RUN"} tone={learner.date ? "magenta" : "muted"} pulse={Boolean(learner.date)} />
               <StatusRow label="Last run" state={learner.date ?? "—"} tone="muted" />
               <StatusRow label="Regime" state={(learner.regime ?? "—").replace(/_/g, " ")} tone="violet" />
               <StatusRow label="Proposals" state={String(learner.proposals ?? 0)} tone="muted" />

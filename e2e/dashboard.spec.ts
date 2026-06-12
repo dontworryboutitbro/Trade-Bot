@@ -162,6 +162,25 @@ test.describe("live activation safety", () => {
   });
 });
 
+test.describe("scanner (mock mode)", () => {
+  test("universe refresh runs and the scanner page renders counts + candidates", async ({
+    page,
+    request,
+  }) => {
+    const run = await request.post("/api/admin/run", { data: { job: "UNIVERSE_REFRESH" } });
+    expect(run.ok()).toBeTruthy();
+    const body = await run.json();
+    expect(body.result.discovered.equities).toBeGreaterThan(0);
+    expect(body.result.discovered.crypto).toBeGreaterThan(0);
+
+    await page.goto("/scanner");
+    await expect(page.getByRole("heading", { name: "Scanner" })).toBeVisible();
+    await expect(page.getByText("Equities discovered", { exact: false })).toBeVisible();
+    await expect(page.getByText("Top ranked candidates", { exact: false })).toBeVisible();
+    await expect(page.getByText("trade selectively", { exact: false })).toBeVisible();
+  });
+});
+
 test.describe("live readiness (mock mode)", () => {
   test("readiness page renders with drills, feed warning, and capital stages", async ({ page }) => {
     await page.goto("/settings/live-readiness");

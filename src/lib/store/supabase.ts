@@ -562,6 +562,9 @@ export class SupabaseStore implements Store {
       "learning_runs","feature_observations","outcome_labels",
       "confidence_calibration_buckets","strategy_versions","shadow_proposals",
       "shadow_trade_results","promotion_reviews","rollback_events","stream_health_events",
+      // Step 20 — scanner / dynamic universe / worker telemetry
+      "asset_universe","scanner_runs","scanner_candidates","asset_rejections",
+      "execution_universe_changes","worker_heartbeats","worker_stream_health",
     ];
     if (!allowed.includes(table)) throw new Error(`Learning table ${table} is not allowed.`);
   }

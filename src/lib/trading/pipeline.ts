@@ -381,13 +381,20 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
   const recentBars: AiContext["recentBars"] = {};
   const hourlyBars: AiContext["hourlyBars"] = {};
   // Bars for held symbols + benchmark + a few candidates (keep prompt small).
+  // Candidate set: scanner-ranked symbols when available (hard-capped),
+  // falling back to the active allowlist. The whole market is never prompted.
+  const { getTopCandidates } = await import("@/lib/universe/refresh");
+  const rankedCandidates = (await getTopCandidates())
+    .map((c) => c.symbol)
+    .filter((s) => activeSymbols.includes(s));
+  const candidatePool = rankedCandidates.length > 0 ? rankedCandidates : activeSymbols.slice(0, 8);
   const barSymbols = Array.from(
     new Set([
       BENCHMARK_SYMBOL,
       ...positions.map((p) => p.symbol),
-      ...activeSymbols.slice(0, 8),
+      ...candidatePool,
     ]),
-  ).slice(0, 12);
+  ).slice(0, 14);
   const cryptoSymbols = approvedSymbols
     .filter((s) => s.active && s.assetClass === "crypto")
     .map((s) => s.symbol)
