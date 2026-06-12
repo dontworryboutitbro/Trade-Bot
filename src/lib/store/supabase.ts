@@ -553,6 +553,85 @@ export class SupabaseStore implements Store {
     }));
   }
 
+  // Learning store: whitelisted tables with (id, k1..k4, payload jsonb).
+  private learningTableOk(table: string): void {
+    const allowed = [
+      "learning_runs","feature_observations","outcome_labels",
+      "confidence_calibration_buckets","strategy_versions","shadow_proposals",
+      "shadow_trade_results","promotion_reviews","rollback_events","stream_health_events",
+    ];
+    if (!allowed.includes(table)) throw new Error(`Learning table ${table} is not allowed.`);
+  }
+
+  async putLearningRecord(
+    table: string,
+    keys: Record<string, string | null>,
+    payload: unknown,
+  ): Promise<string> {
+    this.learningTableOk(table);
+    const entries = Object.entries(keys).slice(0, 4);
+    const row: Record<string, unknown> = { payload };
+    entries.forEach(([k, v], i) => {
+      row[`k${i + 1}_name`] = k;
+      row[`k${i + 1}`] = v;
+    });
+    const inserted = await this.one<any>(
+      this.db.from(table).insert(row).select("id").single(),
+    );
+    return inserted.id;
+  }
+
+  async listLearningRecords(
+    table: string,
+    filter?: { keys?: Record<string, string>; limit?: number; sinceIso?: string },
+  ) {
+    this.learningTableOk(table);
+    let query = this.db
+      .from(table)
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(filter?.limit ?? 500);
+    if (filter?.sinceIso) query = query.gte("created_at", filter.sinceIso);
+    const rows = await this.many<any>(query);
+    const mapped = rows.map((row) => {
+      const keys: Record<string, string | null> = {};
+      for (let i = 1; i <= 4; i++) {
+        if (row[`k${i}_name`]) keys[row[`k${i}_name`]] = row[`k${i}`];
+      }
+      return { id: row.id, keys, payload: row.payload, createdAt: row.created_at };
+    });
+    return filter?.keys
+      ? mapped.filter((r) =>
+          Object.entries(filter.keys!).every(([k, v]) => r.keys[k] === v),
+        )
+      : mapped;
+  }
+
+  async updateLearningRecord(
+    table: string,
+    id: string,
+    patch: { keys?: Record<string, string | null>; payload?: unknown },
+  ): Promise<void> {
+    this.learningTableOk(table);
+    const existing = await this.one<any>(this.db.from(table).select("*").eq("id", id).single());
+    const update: Record<string, unknown> = {};
+    if (patch.payload !== undefined) update.payload = patch.payload;
+    if (patch.keys) {
+      const keys: Record<string, string | null> = {};
+      for (let i = 1; i <= 4; i++) {
+        if (existing[`k${i}_name`]) keys[existing[`k${i}_name`]] = existing[`k${i}`];
+      }
+      Object.assign(keys, patch.keys);
+      Object.entries(keys)
+        .slice(0, 4)
+        .forEach(([k, v], i) => {
+          update[`k${i + 1}_name`] = k;
+          update[`k${i + 1}`] = v;
+        });
+    }
+    await this.run(this.db.from(table).update(update).eq("id", id));
+  }
+
   async saveBacktestRun(run: {
     strategyId: string;
     config: unknown;

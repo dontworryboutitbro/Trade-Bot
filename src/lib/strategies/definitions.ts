@@ -36,8 +36,22 @@ export interface Strategy {
   positionSizePct: number;
   /** Mechanical strategies are backtestable; discretionary AI research is not. */
   backtestable: boolean;
+  /** Tunable parameters (challenger variants change ONLY these, within hardcoded ranges). */
+  params: Record<string, number>;
   /** Pure signal over daily bars (oldest→newest). Needs ≥60 bars. */
-  signal?: (bars: Bar[]) => StrategySignal;
+  signal?: (bars: Bar[], params?: Record<string, number>) => StrategySignal;
+}
+
+/** Immutable variant of a strategy with overridden params (for shadow testing). */
+export function withParams(strategy: Strategy, params: Record<string, number>): Strategy {
+  const merged = { ...strategy.params, ...params };
+  return {
+    ...strategy,
+    params: merged,
+    stopLossPct: merged.stopLossPct ?? strategy.stopLossPct,
+    maxHoldingDays: merged.maxHoldingDays ?? strategy.maxHoldingDays,
+    signal: strategy.signal ? (bars) => strategy.signal!(bars, merged) : undefined,
+  };
 }
 
 function sma(closes: number[], n: number): number | null {
@@ -65,24 +79,25 @@ const trendPullback: Strategy = {
   stopLossPct: 5,
   positionSizePct: 8,
   backtestable: true,
-  signal(bars) {
+  params: { maShort: 20, maLong: 50, pullbackMin: 2, pullbackMax: 6, stopLossPct: 5, maxHoldingDays: 20 },
+  signal(bars, params = trendPullback.params) {
     const closes = bars.map((b) => b.close);
     const close = closes[closes.length - 1];
-    const ma20 = sma(closes, 20);
-    const ma50 = sma(closes, 50);
-    const high20 = Math.max(...closes.slice(-20));
+    const maS = sma(closes, params.maShort);
+    const maL = sma(closes, params.maLong);
+    const highWin = Math.max(...closes.slice(-params.maShort));
     const evidenceFor: string[] = [];
     const evidenceAgainst: string[] = [];
-    if (ma20 === null || ma50 === null) return { enter: false, exit: false, evidenceFor, evidenceAgainst: ["Insufficient history."] };
-    const pullbackPct = ((high20 - close) / high20) * 100;
-    const uptrend = close > ma50 && ma20 > ma50;
-    if (uptrend) evidenceFor.push(`Uptrend intact: close ${close.toFixed(2)} > MA50 ${ma50.toFixed(2)}.`);
-    else evidenceAgainst.push("No aligned uptrend (close vs MA50 / MA20 vs MA50).");
-    if (pullbackPct >= 2 && pullbackPct <= 6) evidenceFor.push(`Pullback ${pullbackPct.toFixed(1)}% from 20d high is in the 2–6% buy zone.`);
-    else evidenceAgainst.push(`Pullback ${pullbackPct.toFixed(1)}% outside the 2–6% zone.`);
+    if (maS === null || maL === null) return { enter: false, exit: false, evidenceFor, evidenceAgainst: ["Insufficient history."] };
+    const pullbackPct = ((highWin - close) / highWin) * 100;
+    const uptrend = close > maL && maS > maL;
+    if (uptrend) evidenceFor.push(`Uptrend intact: close ${close.toFixed(2)} > MA${params.maLong} ${maL.toFixed(2)}.`);
+    else evidenceAgainst.push("No aligned uptrend (close vs long MA / short MA vs long MA).");
+    if (pullbackPct >= params.pullbackMin && pullbackPct <= params.pullbackMax) evidenceFor.push(`Pullback ${pullbackPct.toFixed(1)}% from recent high is in the ${params.pullbackMin}-${params.pullbackMax}% buy zone.`);
+    else evidenceAgainst.push(`Pullback ${pullbackPct.toFixed(1)}% outside the ${params.pullbackMin}-${params.pullbackMax}% zone.`);
     return {
-      enter: uptrend && pullbackPct >= 2 && pullbackPct <= 6,
-      exit: close < ma50,
+      enter: uptrend && pullbackPct >= params.pullbackMin && pullbackPct <= params.pullbackMax,
+      exit: close < maL,
       evidenceFor,
       evidenceAgainst,
     };
@@ -102,19 +117,20 @@ const relativeMomentum: Strategy = {
   stopLossPct: 7,
   positionSizePct: 8,
   backtestable: true,
-  signal(bars) {
+  params: { lookback: 63, momentumMinPct: 5, maLong: 50, stopLossPct: 7, maxHoldingDays: 42 },
+  signal(bars, params = relativeMomentum.params) {
     const closes = bars.map((b) => b.close);
     const close = closes[closes.length - 1];
-    const ma50 = sma(closes, 50);
-    const r63 = ret(closes, 63);
+    const maL = sma(closes, params.maLong);
+    const rN = ret(closes, params.lookback);
     const evidenceFor: string[] = [];
     const evidenceAgainst: string[] = [];
-    if (ma50 === null || r63 === null) return { enter: false, exit: false, evidenceFor, evidenceAgainst: ["Insufficient history."] };
-    if (r63 > 5) evidenceFor.push(`3-month return ${r63.toFixed(1)}% shows momentum.`);
-    else evidenceAgainst.push(`3-month return ${r63.toFixed(1)}% below +5% momentum bar.`);
-    if (close > ma50) evidenceFor.push("Price above MA50.");
-    else evidenceAgainst.push("Price below MA50.");
-    return { enter: r63 > 5 && close > ma50, exit: r63 < 0 || close < ma50, evidenceFor, evidenceAgainst };
+    if (maL === null || rN === null) return { enter: false, exit: false, evidenceFor, evidenceAgainst: ["Insufficient history."] };
+    if (rN > params.momentumMinPct) evidenceFor.push(`${params.lookback}d return ${rN.toFixed(1)}% shows momentum.`);
+    else evidenceAgainst.push(`${params.lookback}d return ${rN.toFixed(1)}% below +${params.momentumMinPct}% momentum bar.`);
+    if (close > maL) evidenceFor.push(`Price above MA${params.maLong}.`);
+    else evidenceAgainst.push(`Price below MA${params.maLong}.`);
+    return { enter: rN > params.momentumMinPct && close > maL, exit: rN < 0 || close < maL, evidenceFor, evidenceAgainst };
   },
 };
 
@@ -131,19 +147,21 @@ const meanReversion: Strategy = {
   stopLossPct: 4,
   positionSizePct: 6,
   backtestable: true,
-  signal(bars) {
+  params: { window: 5, oversoldPct: -4, supportBufferPct: 7, stopLossPct: 4, maxHoldingDays: 10 },
+  signal(bars, params = meanReversion.params) {
     const closes = bars.map((b) => b.close);
     const close = closes[closes.length - 1];
     const ma50 = sma(closes, 50);
-    const r5 = ret(closes, 5);
+    const rW = ret(closes, params.window);
     const evidenceFor: string[] = [];
     const evidenceAgainst: string[] = [];
-    if (ma50 === null || r5 === null) return { enter: false, exit: false, evidenceFor, evidenceAgainst: ["Insufficient history."] };
-    if (r5 < -4) evidenceFor.push(`5-day move ${r5.toFixed(1)}% is oversold (<-4%).`);
-    else evidenceAgainst.push(`5-day move ${r5.toFixed(1)}% not oversold.`);
-    if (close > ma50 * 0.93) evidenceFor.push("Holding above deep support (7% under MA50).");
+    if (ma50 === null || rW === null) return { enter: false, exit: false, evidenceFor, evidenceAgainst: ["Insufficient history."] };
+    if (rW < params.oversoldPct) evidenceFor.push(`${params.window}-day move ${rW.toFixed(1)}% is oversold (<${params.oversoldPct}%).`);
+    else evidenceAgainst.push(`${params.window}-day move ${rW.toFixed(1)}% not oversold.`);
+    const support = ma50 * (1 - params.supportBufferPct / 100);
+    if (close > support) evidenceFor.push(`Holding above deep support (${params.supportBufferPct}% under MA50).`);
     else evidenceAgainst.push("Broken far below MA50 — falling knife risk.");
-    return { enter: r5 < -4 && close > ma50 * 0.93, exit: r5 !== null && r5 > 0, evidenceFor, evidenceAgainst };
+    return { enter: rW < params.oversoldPct && close > support, exit: rW !== null && rW > 0, evidenceFor, evidenceAgainst };
   },
 };
 
@@ -160,16 +178,17 @@ const defensiveRotation: Strategy = {
   stopLossPct: 5,
   positionSizePct: 8,
   backtestable: true,
-  signal(bars) {
+  params: { ma: 20, stopLossPct: 5, maxHoldingDays: 30 },
+  signal(bars, params = defensiveRotation.params) {
     const closes = bars.map((b) => b.close);
     const close = closes[closes.length - 1];
-    const ma20 = sma(closes, 20);
+    const maV = sma(closes, params.ma);
     const evidenceFor: string[] = [];
     const evidenceAgainst: string[] = [];
-    if (ma20 === null) return { enter: false, exit: false, evidenceFor, evidenceAgainst: ["Insufficient history."] };
-    if (close > ma20) evidenceFor.push("Defensive name holding above MA20 while the market is risk-off.");
-    else evidenceAgainst.push("Below MA20 — defensives not attracting flows.");
-    return { enter: close > ma20, exit: close < ma20, evidenceFor, evidenceAgainst };
+    if (maV === null) return { enter: false, exit: false, evidenceFor, evidenceAgainst: ["Insufficient history."] };
+    if (close > maV) evidenceFor.push(`Defensive name holding above MA${params.ma} while the market is risk-off.`);
+    else evidenceAgainst.push(`Below MA${params.ma} — defensives not attracting flows.`);
+    return { enter: close > maV, exit: close < maV, evidenceFor, evidenceAgainst };
   },
 };
 
@@ -187,6 +206,7 @@ const aiDiscretionary: Strategy = {
   stopLossPct: 5,
   positionSizePct: 6,
   backtestable: false,
+  params: { minConfidence: 60, stopLossPct: 5, maxHoldingDays: 30 },
 };
 
 export const STRATEGIES: Strategy[] = [

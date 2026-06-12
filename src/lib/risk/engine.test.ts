@@ -142,6 +142,45 @@ function ctx(overrides: Partial<RiskContext> = {}): RiskContext {
     hasEquivalentPendingOrder: false,
     proposalAlreadyExecuted: false,
     now: NOW,
+    // Quality-layer defaults: a clean snapshot + cost estimate so fail-closed
+    // checks pass unless a test explicitly nulls them out.
+    quoteSnapshot: {
+      symbol: overrides.proposal?.symbol ?? "SPY",
+      timestamp: NOW.toISOString(),
+      capturedAt: NOW.toISOString(),
+      bid: 499.9,
+      ask: 500.1,
+      mid: 500,
+      lastTrade: 500,
+      spreadUsd: 0.2,
+      spreadBps: 4,
+      quoteAgeMs: 500,
+      source: "mock",
+      session: "REGULAR",
+      dailyVolume: 50_000_000,
+      avgDailyVolume: null,
+      volatilityEstimate: null,
+      stale: false,
+      liquidity: "OK",
+      halted: false,
+    },
+    costEstimate: {
+      symbol: overrides.proposal?.symbol ?? "SPY",
+      side: "buy",
+      quantity: 1,
+      referencePrice: 500,
+      estimatedFillPrice: 500.15,
+      bidAskCostUsd: 0.1,
+      estimatedSlippageUsd: 0.05,
+      totalEstimatedCostUsd: 0.15,
+      totalEstimatedCostBps: 3,
+      notionalAtReference: 500,
+      notionalAtEstimatedFill: 500.15,
+      maxPriceDeviationPct: 1,
+      participationOfDailyVolume: 0.0000001,
+    },
+    hasPortfolioSnapshot: true,
+    calibrationMinConfidence: null,
     ...overrides,
   };
 }
@@ -474,6 +513,98 @@ describe("risk engine", () => {
         ),
         "order_size",
       );
+    });
+  });
+
+  describe("fail-closed quality inputs (18.11)", () => {
+    it("MOCK and PAPER_MANUAL: missing snapshot/cost estimate warn but pass", () => {
+      for (const tradingMode of ["MOCK", "PAPER_MANUAL"] as const) {
+        const proposalEnv = tradingMode === "MOCK" ? "MOCK" : "PAPER";
+        const result = evaluateRisk(
+          ctx({
+            tradingMode,
+            proposal: proposal({ environment: proposalEnv as never }),
+            quoteSnapshot: null,
+            costEstimate: null,
+          }),
+        );
+        const dq = result.checks.find((c) => c.name === "data_quality")!;
+        const ec = result.checks.find((c) => c.name === "execution_cost")!;
+        expect(dq.passed).toBe(true);
+        expect(dq.detail).toContain("WARNING");
+        expect(ec.passed).toBe(true);
+        expect(ec.detail).toContain("WARNING");
+      }
+    });
+
+    it("PAPER_AUTONOMOUS: missing quote snapshot blocks", () => {
+      blockedBy(
+        evaluateRisk(ctx({ tradingMode: "PAPER_AUTONOMOUS", quoteSnapshot: null })),
+        "data_quality",
+      );
+    });
+
+    it("PAPER_AUTONOMOUS: missing cost estimate blocks", () => {
+      blockedBy(
+        evaluateRisk(ctx({ tradingMode: "PAPER_AUTONOMOUS", costEstimate: null })),
+        "execution_cost",
+      );
+    });
+
+    it("PAPER_AUTONOMOUS: missing portfolio snapshot blocks", () => {
+      blockedBy(
+        evaluateRisk(ctx({ tradingMode: "PAPER_AUTONOMOUS", hasPortfolioSnapshot: false })),
+        "learning_inputs",
+      );
+    });
+
+    it("PAPER_AUTONOMOUS: missing regime reading blocks strategy proposals", () => {
+      blockedBy(
+        evaluateRisk(
+          ctx({
+            tradingMode: "PAPER_AUTONOMOUS",
+            proposal: proposal({ strategyId: "trend-pullback" }),
+            regimeEligibility: null,
+          }),
+        ),
+        "learning_inputs",
+      );
+    });
+
+    it("LIVE_MANUAL: missing quality inputs block", () => {
+      blockedBy(
+        evaluateRisk(
+          ctx({
+            tradingMode: "LIVE_MANUAL",
+            proposal: proposal({ environment: "LIVE" }),
+            limits: LIVE_DEFAULT_LIMITS,
+            quoteSnapshot: null,
+          }),
+        ),
+        "data_quality",
+      );
+    });
+
+    it("calibration penalty blocks low-confidence autonomous entries", () => {
+      blockedBy(
+        evaluateRisk(
+          ctx({
+            tradingMode: "PAPER_AUTONOMOUS",
+            proposal: proposal({ confidence: 62 }),
+            calibrationMinConfidence: 80,
+          }),
+        ),
+        "learning_inputs",
+      );
+      // Same proposal passes in manual mode (penalty is autonomous-only).
+      const manual = evaluateRisk(
+        ctx({
+          tradingMode: "PAPER_MANUAL",
+          proposal: proposal({ confidence: 62 }),
+          calibrationMinConfidence: 80,
+        }),
+      );
+      expect(manual.checks.find((c) => c.name === "learning_inputs")!.passed).toBe(true);
     });
   });
 

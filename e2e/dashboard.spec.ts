@@ -127,6 +127,29 @@ test.describe("strategy lab v2 pages (mock mode)", () => {
   });
 });
 
+test.describe("learning engine (mock mode)", () => {
+  test("daily learning runs via the admin trigger and renders on /learning", async ({
+    page,
+    request,
+  }) => {
+    const run = await request.post("/api/admin/run", { data: { job: "LEARN_DAILY" } });
+    expect(run.ok()).toBeTruthy();
+    const body = await run.json();
+    expect(body.result.narrative).toContain("Learning run complete");
+
+    await page.goto("/learning");
+    await expect(page.getByRole("heading", { name: "Learning", exact: true })).toBeVisible();
+    await expect(page.getByText("Daily learning report", { exact: false })).toBeVisible();
+    await expect(page.getByText("Champion vs challenger")).toBeVisible();
+    await expect(page.getByText("Confidence calibration")).toBeVisible();
+  });
+
+  test("learning cron routes require CRON_SECRET", async ({ request }) => {
+    expect((await request.get("/api/cron/learn-daily")).status()).toBe(401);
+    expect((await request.get("/api/cron/validate-weekly")).status()).toBe(401);
+  });
+});
+
 test.describe("live activation safety", () => {
   test("live modes cannot be enabled via the API without the full ceremony", async ({ request }) => {
     const attempt = await request.post("/api/admin/mode", {

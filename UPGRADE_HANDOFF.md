@@ -102,3 +102,37 @@ APP_ENCRYPTION_KEY, APP_URL, optional DISCORD_WEBHOOK_URL/Resend.
     SPY live quote OK; account sync: 3 positions, equity $100,153.40 ✅
 - Crons active from vercel.json (evaluate / snapshot / reconcile / health).
 - Merged to `main` (merge commit a0ae35d) and pushed.
+
+
+# Step 18 — Daily Adaptive Learning Engine (2026-06-12)
+
+## Built
+
+| Piece | Where | Notes |
+|---|---|---|
+| Nightly learner | `src/lib/learning/daily-review.ts` + `/api/cron/learn-daily` (22:45 UTC wkdays) | snapshot check, reconcile, outcome labels (1/3/5/10/20d, MFE/MAE, SPY-relative, abstain-was-better), calibration, challenger generation, shadow tick, daily report, alerts |
+| Weekly validator | `src/lib/learning/weekly-validation.ts` + `/api/cron/validate-weekly` (Sat 14:30 UTC) | walk-forward per version, doubled-cost sensitivity, promotion gates → promotion_reviews (manual approval), rollback checks, weekly report |
+| Feature store | `feature_observations` via generic learning store (whitelisted tables, k1–k4 + jsonb payload) | captures EXECUTED / RISK_REJECTED / NO_TRADE decisions with full market+portfolio context |
+| Calibration | `src/lib/learning/calibration.ts` | 6 buckets, OVER/UNDER-confident verdicts, tighten-only autonomous min-confidence penalty (capped 95) |
+| Champion/challenger | `src/lib/learning/challengers.ts`, `promotion.ts` | immutable versions (DB trigger), hardcoded param ranges, ≤3 challengers/week, deterministic systematic variants |
+| Shadow mode | inside daily-review | unit-quantity hypothetical trades, stress-tested P/L, zero orders (integration-tested) |
+| Rollback | `evaluateRollback` | disables entries (exits preserved), alert + audit, triggers: negative stressed expectancy, drawdown, regime exit, calibration decay, one-trade reliance |
+| Fail-closed | risk engine `data_quality` / `execution_cost` / new `learning_inputs` checks (engine now 27 checks) | MOCK/PAPER_MANUAL warn; PAPER_AUTONOMOUS + LIVE block on missing snapshot/cost/portfolio-snapshot/regime/calibration |
+| Realism penalties | `src/lib/learning/realism.ts` | spread/slippage/impact bps + partial-fill haircut + stale/liquidity/vol adders; promotion uses stressed P/L only |
+| Streaming | `src/lib/streaming/market-stream.ts` | opportunistic Alpaca WS (long-lived runtimes only — Vercel functions are request-scoped, documented); REST authoritative; freshness-unverifiable → fail-closed block |
+| Dashboard | `/learning` | reports, calibration table, version table, promotion reviews, rollbacks, streaming health + manual run buttons |
+| Migration | `supabase/migrations/0005_daily_learning.sql` | 10 learning tables, RLS, immutability trigger, rollback SQL in comments. Cron idempotency reuses cron_runs unique constraint (documented design choice vs separate key tables) |
+
+## Verification
+
+- lint ✅ · typecheck ✅ · **150/150 unit+integration tests** · **14/14 Playwright e2e** · build ✅
+- Integration-proven: daily learner places zero orders and changes zero settings;
+  weekly validator never auto-promotes (champions stay @1 without manual approval);
+  cron idempotency keys dedupe; challenger params outside hardcoded ranges rejected.
+- Cron plan: existing hourly crons already deploy on this Vercel account; the two
+  new schedules (daily + weekly) are lower-frequency than what is already accepted.
+
+## Doc cleanup performed
+- README/SECURITY/UPGRADE_HANDOFF updated; stale "0004 pending"/"deploy pending"
+  statements were already corrected in the deployment record above; test counts
+  updated to 150/14.

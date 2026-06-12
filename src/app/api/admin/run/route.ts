@@ -21,6 +21,8 @@ export const POST = adminRoute(
       "CAPTURE_SNAPSHOT",
       "HEALTH_CHECK",
       "AI_EVALUATION",
+      "LEARN_DAILY",
+      "VALIDATE_WEEKLY",
       "TEST_LIVE_CONNECTION",
       "SET_EVALUATION_FREQUENCY",
     ]),
@@ -53,6 +55,14 @@ export const POST = adminRoute(
         return { result: await runHealthChecks() };
       case "AI_EVALUATION":
         return { result: await runAiEvaluation(user.email) };
+      case "LEARN_DAILY": {
+        const { runDailyLearning } = await import("@/lib/learning/daily-review");
+        return { result: await runDailyLearning() };
+      }
+      case "VALIDATE_WEEKLY": {
+        const { runWeeklyValidation } = await import("@/lib/learning/weekly-validation");
+        return { result: await runWeeklyValidation() };
+      }
       case "TEST_LIVE_CONNECTION": {
         // Read-only connectivity check against the LIVE account (LIVE_LOCKED client).
         const { AlpacaLiveBrokerageClient } = await import("@/lib/brokerage/factory");

@@ -44,6 +44,10 @@ interface MemoryData {
   stopRules: StopRule[];
   journal: JournalEntryRow[];
   crossMarketHistory: { key: string; midpoint: number | null; capturedAt: string }[];
+  learning: Map<
+    string,
+    { id: string; keys: Record<string, string | null>; payload: unknown; createdAt: string }[]
+  >;
   backtestRuns: {
     id: string;
     strategyId: string;
@@ -331,6 +335,7 @@ function seedData(): MemoryData {
     stopRules: [],
     journal: [],
     crossMarketHistory: [],
+    learning: new Map(),
     backtestRuns: [],
   };
 }
@@ -515,6 +520,40 @@ export class MemoryStore implements Store {
     if (filter?.environment) list = list.filter((e) => e.environment === filter.environment);
     if (filter?.strategyId) list = list.filter((e) => e.strategyId === filter.strategyId);
     return list.slice(0, filter?.limit ?? 200).map((e) => ({ ...e }));
+  }
+
+  async putLearningRecord(table: string, keys: Record<string, string | null>, payload: unknown) {
+    const id = randomUUID();
+    const rows = data().learning.get(table) ?? [];
+    rows.unshift({ id, keys: { ...keys }, payload, createdAt: new Date().toISOString() });
+    data().learning.set(table, rows);
+    return id;
+  }
+
+  async listLearningRecords(
+    table: string,
+    filter?: { keys?: Record<string, string>; limit?: number; sinceIso?: string },
+  ) {
+    let rows = [...(data().learning.get(table) ?? [])];
+    if (filter?.keys) {
+      rows = rows.filter((r) =>
+        Object.entries(filter.keys!).every(([k, v]) => r.keys[k] === v),
+      );
+    }
+    if (filter?.sinceIso) rows = rows.filter((r) => r.createdAt >= filter.sinceIso!);
+    return rows.slice(0, filter?.limit ?? 500).map((r) => ({ ...r, keys: { ...r.keys } }));
+  }
+
+  async updateLearningRecord(
+    table: string,
+    id: string,
+    patch: { keys?: Record<string, string | null>; payload?: unknown },
+  ) {
+    const row = (data().learning.get(table) ?? []).find((r) => r.id === id);
+    if (row) {
+      if (patch.keys) Object.assign(row.keys, patch.keys);
+      if (patch.payload !== undefined) row.payload = patch.payload;
+    }
   }
 
   async saveBacktestRun(run: {

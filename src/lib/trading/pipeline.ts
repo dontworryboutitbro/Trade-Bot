@@ -14,6 +14,7 @@ import { estimateExecution } from "@/lib/execution/cost-model";
 import { planOrder } from "@/lib/execution/order-policy";
 import { activeCooldowns } from "@/lib/execution/cooldowns";
 import { classifyRegime, type RegimeReading } from "@/lib/regime/engine";
+import { buildObservation } from "@/lib/learning/features";
 import { getStrategy, STRATEGIES } from "@/lib/strategies/definitions";
 import type { Store as StoreType } from "@/lib/store/types";
 import { alert, audit } from "@/lib/services";
@@ -213,7 +214,20 @@ async function buildRiskContext(
     costEstimate,
     cooldownReasons,
     regimeEligibility,
+    hasPortfolioSnapshot: snapshots.length > 0,
+    calibrationMinConfidence: await getCalibrationMinConfidence(store),
   };
+}
+
+/** Latest calibration-adjusted minimum confidence (tighten-only; null = none yet). */
+async function getCalibrationMinConfidence(store: Store): Promise<number | null> {
+  try {
+    const rows = await store.listLearningRecords("confidence_calibration_buckets", { limit: 1 });
+    const value = (rows[0]?.payload as { minConfidence?: number } | undefined)?.minConfidence;
+    return typeof value === "number" ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 async function persistEvaluation(
@@ -431,6 +445,60 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
 
   result.decisionCount = decision.actions.length;
 
+  // Feature observations feed the nightly learner. Best-effort, never blocking.
+  const recordObservation = async (
+    source: "EXECUTED" | "RISK_REJECTED" | "NO_TRADE",
+    action: (typeof decision.actions)[number],
+    proposalId: string | null,
+    riskResult: "PASS" | "BLOCK" | null,
+    rejectionReasons: string[],
+    fillPrice: number | null,
+    costBps: number | null,
+  ) => {
+    try {
+      const snap = await getQuoteSnapshot(mode, action.symbol, marketClock.isOpen).catch(
+        () => null,
+      );
+      const invested = positions.reduce((sum, p) => sum + p.marketValue, 0);
+      const observation = buildObservation({
+        source,
+        proposalId,
+        symbol: action.symbol,
+        assetClass:
+          approvedSymbols.find((s) => s.symbol === action.symbol)?.assetClass === "crypto"
+            ? "crypto"
+            : "us_equity",
+        strategyId: action.strategy_id && getStrategy(action.strategy_id) ? action.strategy_id : null,
+        strategyVersionId: null,
+        regime: regimeReading?.regime ?? null,
+        action: action.action,
+        confidence: action.confidence,
+        thesis: action.concise_reasoning,
+        counterargument: action.counterargument,
+        invalidationCondition: action.invalidation_condition,
+        symbolBars: signalBars[action.symbol] ?? [],
+        spyBars: signalBars[BENCHMARK_SYMBOL] ?? [],
+        snapshot: snap,
+        positionsCount: positions.length,
+        cash: account.cash,
+        exposurePct: account.equity > 0 ? (invested / account.equity) * 100 : null,
+        cooldownActive: cooldownSymbols.includes(action.symbol),
+        riskResult,
+        rejectionReasons,
+        actualFillPrice: fillPrice,
+        estimatedCostBps: costBps,
+        now: new Date(),
+      });
+      await store.putLearningRecord(
+        "feature_observations",
+        { source, symbol: action.symbol, strategy_id: observation.strategyId },
+        observation,
+      );
+    } catch {
+      // learning capture must never break trading
+    }
+  };
+
   for (const action of decision.actions) {
     // HOLD / NO_ACTION: audit-log only, no visible proposal (keeps dashboard clean).
     if (action.action === "HOLD" || action.action === "NO_ACTION" || action.action === "NO_TRADE") {
@@ -444,6 +512,7 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
         summary: `AI chose ${action.action} for ${action.symbol} (confidence ${action.confidence}).`,
         metadata: { reasoning: action.concise_reasoning },
       });
+      await recordObservation("NO_TRADE", action, null, null, [], null, null);
       continue;
     }
 
@@ -500,6 +569,15 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
     if (evaluation.overallResult === "BLOCK") {
       await store.updateProposalStatus(proposal.id, "BLOCKED");
       result.blocked++;
+      await recordObservation(
+        "RISK_REJECTED",
+        action,
+        proposal.id,
+        "BLOCK",
+        evaluation.blockReasons,
+        null,
+        ctx.costEstimate?.totalEstimatedCostBps ?? null,
+      );
       await audit({
         actorType: "SYSTEM",
         actorId: null,
@@ -525,6 +603,15 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
       const execution = await executeProposal(proposal.id, "autonomous-pipeline");
       if (execution.executed) result.executed++;
       else result.errors.push(...execution.reasons);
+      await recordObservation(
+        "EXECUTED",
+        action,
+        proposal.id,
+        execution.executed ? "PASS" : "BLOCK",
+        execution.executed ? [] : execution.reasons,
+        null,
+        ctx.costEstimate?.totalEstimatedCostBps ?? null,
+      );
     } else {
       await store.updateProposalStatus(proposal.id, "AWAITING_APPROVAL");
       result.queued++;

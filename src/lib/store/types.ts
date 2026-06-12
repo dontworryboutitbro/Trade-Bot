@@ -226,6 +226,22 @@ export interface Store {
     limit?: number;
   }): Promise<JournalEntryRow[]>;
 
+  // learning engine (generic, whitelisted tables — see src/lib/learning/types.ts)
+  putLearningRecord(
+    table: string,
+    keys: Record<string, string | null>,
+    payload: unknown,
+  ): Promise<string>;
+  listLearningRecords(
+    table: string,
+    filter?: { keys?: Record<string, string>; limit?: number; sinceIso?: string },
+  ): Promise<{ id: string; keys: Record<string, string | null>; payload: unknown; createdAt: string }[]>;
+  updateLearningRecord(
+    table: string,
+    id: string,
+    patch: { keys?: Record<string, string | null>; payload?: unknown },
+  ): Promise<void>;
+
   // backtests
   saveBacktestRun(run: {
     strategyId: string;

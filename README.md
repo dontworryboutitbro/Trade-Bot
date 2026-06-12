@@ -219,3 +219,42 @@ Interpretation notes: estimated costs are model-based (spread + participation
 impact), Alpaca paper fills are optimistic vs live, IEX feed quotes can differ
 from consolidated tape, and a positive backtest is **not** proof a strategy
 works — the walk-forward warnings exist precisely for that reason.
+
+## Daily adaptive learning (Step 18)
+
+The system now learns from its own paper results — under deterministic control:
+
+- **Nightly learner** (`/api/cron/learn-daily`, 22:45 UTC weekdays): reconciles
+  orders, labels every decision (executed, risk-rejected, and NO_TRADE alike) at
+  1/3/5/10/20-day horizons with MFE/MAE and SPY-relative results, updates
+  confidence calibration, runs shadow strategies, and writes a daily report.
+- **Weekly validator** (`/api/cron/validate-weekly`, Saturday 14:30 UTC): full
+  backtests + walk-forward for champions and challengers, cost-sensitivity
+  (does the edge survive doubled costs?), promotion-gate evaluation, and
+  automatic rollback checks.
+- **Confidence calibration**: buckets Claude's confidence scores against real
+  after-cost outcomes. Proven overconfidence raises the minimum confidence for
+  autonomous entries (tighten-only; never overrides the risk engine).
+- **Champion vs challenger**: immutable strategy versions; deterministic
+  parameter variants (hardcoded ranges, ≤3/week) shadow-test with zero market
+  impact. Promotion requires ≥30 shadow days, ≥30 closed shadow trades,
+  positive stress-tested expectancy, beating the champion, and **manual
+  approval — always**. Live modes are untouchable by this system.
+- **Automatic rollback**: a champion whose stress-tested expectancy turns
+  negative, breaches drawdown, or leaves its supported regime has new entries
+  disabled (exits preserved) with an alert + audit trail.
+- **Fail-closed hardening**: in PAPER_AUTONOMOUS and live modes, missing quote
+  snapshots, cost estimates, portfolio snapshots, or regime readings now BLOCK
+  execution; MOCK/PAPER_MANUAL show explicit warnings instead.
+- **Paper-realism penalties**: promotion decisions use stress-tested P/L (extra
+  spread/slippage/impact, partial-fill haircut, stale-data and volatility
+  penalties) — never raw paper P/L.
+- **Streaming**: opportunistic Alpaca WebSocket quotes when a long-lived
+  process is running; REST snapshots + reconciliation remain authoritative
+  (Vercel functions are request-scoped — documented constraint).
+- **Dashboard**: `/learning` shows reports, calibration, champion/challenger
+  status, promotion reviews, rollbacks, and streaming health.
+
+The learner can improve parameter selection, calibration, abstention, and
+strategy ranking. It cannot rewrite code, change risk limits, increase
+exposure, touch live modes, or bypass manual approval — by construction.

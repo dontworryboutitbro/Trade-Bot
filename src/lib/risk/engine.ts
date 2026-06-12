@@ -54,6 +54,10 @@ export interface RiskContext {
   cooldownReasons?: string[];
   /** Strategy regime eligibility: null skips the check (no strategy attached). */
   regimeEligibility?: { activeRegime: string; approved: boolean } | null;
+  /** False when no portfolio snapshot history exists (fail-closed in autonomous/live). */
+  hasPortfolioSnapshot?: boolean;
+  /** Calibration-adjusted minimum confidence for autonomous entries (tighten-only). */
+  calibrationMinConfidence?: number | null;
 }
 
 type Check = (ctx: RiskContext) => RiskCheckResult;
@@ -337,13 +341,29 @@ const checkAccountRestrictions: Check = (ctx) => {
   return pass("account_restrictions", "No blocking account restrictions.");
 };
 
+/**
+ * Fail-closed policy (18.11): in autonomous and live modes, missing quality
+ * inputs BLOCK; in MOCK / PAPER_MANUAL they pass with an explicit warning
+ * detail (manual review still sees it on the proposal card).
+ */
+function failsClosed(mode: TradingMode): boolean {
+  return mode === "PAPER_AUTONOMOUS" || mode === "LIVE_MANUAL" || mode === "LIVE_AUTONOMOUS";
+}
+
 const checkDataQuality: Check = (ctx) => {
-  // Snapshot layer is additive: when no snapshot infrastructure provided the
-  // basic quote_fresh check still guards staleness. When provided, enforce it.
-  if (ctx.quoteSnapshot === undefined) {
-    return pass("data_quality", "No snapshot layer in this context (legacy path).");
+  const missing = ctx.quoteSnapshot === undefined || ctx.quoteSnapshot === null;
+  if (missing) {
+    return failsClosed(ctx.tradingMode)
+      ? fail(
+          "data_quality",
+          `No quote snapshot available — quote freshness cannot be verified. Blocking in ${ctx.tradingMode} (fail-closed).`,
+        )
+      : pass(
+          "data_quality",
+          "WARNING: no quote snapshot available; allowed in manual/mock mode but requires review.",
+        );
   }
-  const assessment = assessQuote(ctx.quoteSnapshot ?? null);
+  const assessment = assessQuote(ctx.quoteSnapshot!);
   return assessment.ok
     ? pass("data_quality", "Quote snapshot passed spread/staleness/liquidity rules.")
     : fail("data_quality", assessment.reasons.join(" "));
@@ -352,15 +372,53 @@ const checkDataQuality: Check = (ctx) => {
 const checkExecutionCost: Check = (ctx) => {
   if (isSellSide(ctx.proposal.action))
     return pass("execution_cost", "Sell order; cost cap not applied to exits.");
-  if (ctx.costEstimate === undefined)
-    return pass("execution_cost", "No cost model in this context (legacy path).");
-  const assessment = assessExecutionCost(ctx.costEstimate ?? null);
+  const missing = ctx.costEstimate === undefined || ctx.costEstimate === null;
+  if (missing) {
+    return failsClosed(ctx.tradingMode)
+      ? fail(
+          "execution_cost",
+          `No execution-cost estimate available. Blocking in ${ctx.tradingMode} (fail-closed).`,
+        )
+      : pass(
+          "execution_cost",
+          "WARNING: no execution-cost estimate; allowed in manual/mock mode but requires review.",
+        );
+  }
+  const assessment = assessExecutionCost(ctx.costEstimate!);
   return assessment.ok
     ? pass(
         "execution_cost",
         `Estimated cost ${ctx.costEstimate?.totalEstimatedCostBps.toFixed(1)} bps within cap.`,
       )
     : fail("execution_cost", assessment.reasons.join(" "));
+};
+
+const checkLearningInputs: Check = (ctx) => {
+  // Autonomous/live modes additionally require a portfolio snapshot history,
+  // a regime reading when a strategy is attached, and calibration compliance.
+  if (!failsClosed(ctx.tradingMode)) {
+    return pass("learning_inputs", "Manual/mock mode: learning inputs advisory only.");
+  }
+  const problems: string[] = [];
+  if (ctx.hasPortfolioSnapshot === false) {
+    problems.push("No portfolio snapshot exists — daily-loss/drawdown baselines unverifiable.");
+  }
+  if (ctx.proposal.strategyId && ctx.regimeEligibility === null) {
+    problems.push("No regime reading available for a strategy-attributed proposal.");
+  }
+  if (
+    ctx.calibrationMinConfidence !== undefined &&
+    ctx.calibrationMinConfidence !== null &&
+    !isSellSide(ctx.proposal.action) &&
+    ctx.proposal.confidence < ctx.calibrationMinConfidence
+  ) {
+    problems.push(
+      `Confidence ${ctx.proposal.confidence} below the calibration-adjusted minimum ${ctx.calibrationMinConfidence} (historical overconfidence penalty).`,
+    );
+  }
+  return problems.length === 0
+    ? pass("learning_inputs", "Snapshots, regime, and calibration requirements satisfied.")
+    : fail("learning_inputs", problems.join(" "));
 };
 
 const checkCooldowns: Check = (ctx) => {
@@ -406,6 +464,7 @@ const ALL_CHECKS: Check[] = [
   checkDailyTradeCount,
   checkDataQuality,
   checkExecutionCost,
+  checkLearningInputs,
   checkCooldowns,
   checkRegimeEligibility,
   checkDailyLoss,

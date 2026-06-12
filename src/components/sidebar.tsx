@@ -7,6 +7,7 @@ import {
   BarChart3,
   BookOpenText,
   FlaskConical,
+  GraduationCap,
   Layers,
   LayoutDashboard,
   Scale,
@@ -23,6 +24,7 @@ const links = [
   { href: "/strategy-lab", label: "Strategy Lab", icon: FlaskConical },
   { href: "/paper-journal", label: "Paper Journal", icon: BookOpenText },
   { href: "/cross-market", label: "Cross-Market", icon: Scale },
+  { href: "/learning", label: "Learning", icon: GraduationCap },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/setup", label: "Setup", icon: Wand2 },
 ];

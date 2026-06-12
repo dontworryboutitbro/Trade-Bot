@@ -108,3 +108,18 @@ ceremony can reach a live mode.
 - Secrets live only in `.env.local` (local) and Vercel env vars (production).
 - Enable MFA on Alpaca, Supabase, Anthropic, GitHub, and Vercel.
 - Never paste credentials into AI chats; never use `NEXT_PUBLIC_` for secrets.
+
+## Learning-engine boundaries (Step 18)
+
+- The learner reads market data and its own records; its ONLY writes go to
+  whitelisted learning tables via the service role. There is no code path from
+  learning output to risk limits, modes, symbols, brokerage, or live settings.
+- Challenger parameters are validated against hardcoded ranges
+  (`src/lib/learning/challengers.ts`); anything else is rejected. No code or
+  SQL generation exists.
+- Strategy versions are immutable (DB trigger blocks version-id mutation).
+- Promotion always requires manual approval; the gate result structurally
+  includes `requiresManualApproval: true`. Live stages are unreachable.
+- Calibration penalties and rollbacks can only tighten/disable — never loosen.
+- Fail-closed: autonomous/live execution blocks when quality inputs are missing
+  (tested per mode in `src/lib/risk/engine.test.ts`).
