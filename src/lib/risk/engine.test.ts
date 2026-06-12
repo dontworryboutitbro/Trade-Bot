@@ -516,6 +516,134 @@ describe("risk engine", () => {
     });
   });
 
+  describe("intraday margin layer (legacy PDT deprecated 2026-06-04)", () => {
+    it("unlimited day-trade counts never trigger a rejection by themselves", () => {
+      const base = ctx();
+      const result = evaluateRisk({
+        ...base,
+        account: {
+          ...base.account,
+          patternDayTrader: true,
+          dayTradeCount: 250, // analytics only
+          equity: 10_000, // below the old $25k threshold
+        },
+      });
+      expect(result.overallResult).toBe("PASS");
+      expect(result.checks.some((c) => c.name.toLowerCase().includes("pdt"))).toBe(false);
+      expect(
+        result.blockReasons.join(" ").toLowerCase().includes("day trade"),
+      ).toBe(false);
+    });
+
+    it("rejects orders exceeding buying power", () => {
+      const base = ctx();
+      blockedBy(
+        evaluateRisk({
+          ...base,
+          // cash high but broker-reported buying power low → effective BP is the min
+          account: { ...base.account, cash: 8000, buyingPower: 100 },
+        }),
+        "intraday_margin",
+      );
+    });
+
+    it("caps at 1× cash even when Alpaca offers leverage (never use offered margin)", () => {
+      const base = ctx();
+      blockedBy(
+        evaluateRisk({
+          ...base,
+          proposal: proposal({ quantity: 1 }), // $500 order
+          account: { ...base.account, cash: 300, buyingPower: 4000 }, // 4× leverage offered
+        }),
+        "intraday_margin",
+      );
+    });
+
+    it("below-$2,000 equity is restricted to 1× buying power like everyone else", () => {
+      const base = ctx();
+      const small = {
+        ...base,
+        account: { ...base.account, equity: 1500, cash: 400, buyingPower: 3000 },
+        // keep allocation/exposure caps from being the failing checks
+        limits: { ...PAPER_DEFAULT_LIMITS, maxSymbolExposurePct: 100, maxTotalExposurePct: 100, maxOrderNotionalIsPct: false, maxOrderNotional: 1000 },
+        positions: [],
+        quote: { symbol: "SPY", price: 450, asOf: NOW.toISOString() },
+      };
+      blockedBy(evaluateRisk(small), "intraday_margin"); // $450 > $400 cash
+    });
+
+    it("rejects orders that would breach the maintenance-margin cushion", () => {
+      const base = ctx();
+      blockedBy(
+        evaluateRisk({
+          ...base,
+          account: { ...base.account, equity: 10_000, maintenanceMargin: 9_800 },
+        }),
+        "intraday_margin",
+      );
+    });
+
+    it("rejects execution on stale account data in autonomous mode; warns in manual", () => {
+      const base = ctx({ tradingMode: "PAPER_AUTONOMOUS" });
+      const staleIso = new Date(NOW.getTime() - 10 * 60 * 1000).toISOString();
+      blockedBy(
+        evaluateRisk({ ...base, account: { ...base.account, asOf: staleIso } }),
+        "account_freshness",
+      );
+      const manual = evaluateRisk({
+        ...ctx({ tradingMode: "PAPER_MANUAL" }),
+        account: { ...ctx().account, asOf: staleIso },
+      });
+      const check = manual.checks.find((c) => c.name === "account_freshness")!;
+      expect(check.passed).toBe(true);
+      expect(check.detail).toContain("WARNING");
+    });
+
+    it("rejects execution when the account snapshot is missing a timestamp (autonomous)", () => {
+      const base = ctx({ tradingMode: "PAPER_AUTONOMOUS" });
+      blockedBy(
+        evaluateRisk({ ...base, account: { ...base.account, asOf: "" } }),
+        "account_freshness",
+      );
+    });
+
+    it("margin and short selling remain disabled by default in every profile", () => {
+      expect(PAPER_DEFAULT_LIMITS.allowMargin).toBe(false);
+      expect(PAPER_DEFAULT_LIMITS.allowShorting).toBe(false);
+      expect(LIVE_DEFAULT_LIMITS.allowMargin).toBe(false);
+      expect(LIVE_DEFAULT_LIMITS.allowShorting).toBe(false);
+      // and the engine enforces no_shorting structurally:
+      blockedBy(evaluateRisk(ctx({ proposal: proposal({ action: "SELL" }) })), "no_shorting");
+    });
+
+    it("autonomous paper mode is capped at 1× cash", () => {
+      const base = ctx({ tradingMode: "PAPER_AUTONOMOUS" });
+      blockedBy(
+        evaluateRisk({
+          ...base,
+          account: { ...base.account, cash: 499, buyingPower: 10_000 },
+        }),
+        "intraday_margin",
+      );
+    });
+
+    it("sells are never blocked by the margin layer", () => {
+      const base = ctx();
+      const result = evaluateRisk({
+        ...base,
+        positions: [
+          {
+            symbol: "SPY", quantity: 2, averageEntryPrice: 480, currentPrice: 500,
+            marketValue: 1000, unrealizedPl: 40, unrealizedPlPct: 4,
+          },
+        ],
+        proposal: proposal({ action: "SELL", quantity: 1 }),
+        account: { ...base.account, cash: 0, buyingPower: 0 },
+      });
+      expect(result.checks.find((c) => c.name === "intraday_margin")!.passed).toBe(true);
+    });
+  });
+
   describe("fail-closed quality inputs (18.11)", () => {
     it("MOCK and PAPER_MANUAL: missing snapshot/cost estimate warn but pass", () => {
       for (const tradingMode of ["MOCK", "PAPER_MANUAL"] as const) {

@@ -151,3 +151,27 @@ APP_ENCRYPTION_KEY, APP_URL, optional DISCORD_WEBHOOK_URL/Resend.
   reports requirements not met).
 - Crons scheduled in vercel.json: learn-daily 22:45 UTC weekdays,
   validate-weekly Saturday 14:30 UTC.
+
+
+# Alpaca intraday-margin update (2026-06-12)
+
+Alpaca deprecated legacy PDT protection (2026-06-04). Audit confirmed this app
+never enforced a PDT day-trade-count rejection; the change is therefore purely
+additive safety:
+
+- New risk checks (engine now 29): `account_freshness` (buying power/equity
+  must be <5 min old before execution; fail-closed in autonomous/live, warning
+  in manual/mock) and `intraday_margin` (effective buying power =
+  min(cash, broker BP) → hard 1× cash cap in every mode; maintenance-margin
+  cushion enforced when reported; sells exempt).
+- `patternDayTrader` / `dayTradeCount` / `maintenanceMargin` now captured from
+  the Alpaca account — analytics only, never a rejection input.
+- Daily learning report tracks same-day round trips; ≥5/day raises an
+  overtrading review item.
+- Internal max-trades/day limits documented as risk management, not compliance.
+- 10 new engine tests (unlimited day-trades pass, buying-power rejection, 1×
+  cash cap vs offered leverage, sub-$2k account at 1×, maintenance-margin
+  deficit rejection, stale/missing account data, margin+short defaults,
+  autonomous 1× cap, sell exemption).
+- Totals: 160 unit/integration tests, 14 e2e — all passing; deployed to
+  production.

@@ -167,6 +167,9 @@ export interface DailyLearningReport {
   calibrationSummary: string;
   strategyFindings: { strategyId: string; note: string }[];
   dataQualityIncidents: number;
+  /** Analytics only — never a rejection reason (legacy PDT was deprecated by Alpaca 2026-06-04). */
+  intradayRoundTripsToday?: number;
+  brokerDayTradeCount?: number | null;
   challengerUpdates: string[];
   rollbacks: string[];
   reviewItems: string[];

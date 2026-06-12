@@ -101,7 +101,10 @@ export class AlpacaBrokerageClient implements BrokerageClient {
       currency: "USD",
       accountBlocked: Boolean(raw.account_blocked),
       tradingBlocked: Boolean(raw.trading_blocked),
-      patternDayTrader: Boolean(raw.pattern_day_trader),
+      patternDayTrader: Boolean(raw.pattern_day_trader), // analytics only
+      dayTradeCount: raw.daytrade_count != null ? Number(raw.daytrade_count) : null,
+      maintenanceMargin:
+        raw.maintenance_margin != null ? Number(raw.maintenance_margin) : null,
       asOf: new Date().toISOString(),
     };
   }

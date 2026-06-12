@@ -399,10 +399,12 @@ export async function runDailyLearning(): Promise<DailyLearningReport> {
   // Account + today's decisions.
   let equity: number | null = null;
   let cash: number | null = null;
+  let brokerDayTradeCount: number | null = null;
   try {
     const account = await getBrokerageClient(mode).getAccount();
     equity = account.equity;
     cash = account.cash;
+    brokerDayTradeCount = account.dayTradeCount ?? null;
   } catch {
     // brokerage may be unavailable after hours — report renders without it
   }
@@ -428,8 +430,19 @@ export async function runDailyLearning(): Promise<DailyLearningReport> {
   const best = [...tripToday].sort((a, b) => b.plUsd - a.plUsd)[0];
   const worst = [...tripToday].sort((a, b) => a.plUsd - b.plUsd)[0];
 
+  // Intraday round trips (entered AND exited the same day) — analytics only,
+  // never a rejection reason since Alpaca deprecated legacy PDT protection.
+  const intradayRoundTripsToday = trips.filter(
+    (t) => t.exitAt.slice(0, 10) === marketDate && t.entryAt.slice(0, 10) === marketDate,
+  ).length;
+
   const reviewItems: string[] = [];
   if (!snapshotToday) reviewItems.push("No portfolio snapshot was captured today — check the snapshot cron.");
+  if (intradayRoundTripsToday >= 5) {
+    reviewItems.push(
+      `Overtrading signal: ${intradayRoundTripsToday} same-day round trips today. Frequent intraday turnover usually erodes edge through costs — review strategy behavior.`,
+    );
+  }
   if (calBad.length) reviewItems.push("Confidence calibration shows overconfident buckets.");
   if (dataQualityIncidents > 2) reviewItems.push(`${dataQualityIncidents} data-quality incidents today.`);
 
@@ -461,6 +474,8 @@ export async function runDailyLearning(): Promise<DailyLearningReport> {
     calibrationSummary,
     strategyFindings,
     dataQualityIncidents,
+    intradayRoundTripsToday,
+    brokerDayTradeCount,
     challengerUpdates,
     rollbacks: [],
     reviewItems,

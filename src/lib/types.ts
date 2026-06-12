@@ -67,7 +67,13 @@ export interface AccountSnapshot {
   currency: "USD";
   accountBlocked: boolean;
   tradingBlocked: boolean;
+  /** ANALYTICS ONLY — Alpaca deprecated legacy PDT protection (2026-06-04).
+   *  Never used as a rejection reason. */
   patternDayTrader: boolean;
+  /** Analytics only: Alpaca's rolling day-trade count, when provided. */
+  dayTradeCount?: number | null;
+  /** Maintenance margin requirement, when the brokerage provides it. */
+  maintenanceMargin?: number | null;
   asOf: string; // ISO timestamp
 }
 

@@ -141,7 +141,9 @@ export class MockBrokerageClient implements BrokerageClient {
       currency: "USD",
       accountBlocked: false,
       tradingBlocked: false,
-      patternDayTrader: false,
+      patternDayTrader: false, // analytics only — legacy PDT deprecated by Alpaca
+      dayTradeCount: 0,
+      maintenanceMargin: 0,
       asOf: new Date().toISOString(),
     };
   }

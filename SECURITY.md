@@ -123,3 +123,27 @@ ceremony can reach a live mode.
 - Calibration penalties and rollbacks can only tighten/disable — never loosen.
 - Fail-closed: autonomous/live execution blocks when quality inputs are missing
   (tested per mode in `src/lib/risk/engine.test.ts`).
+
+## Intraday-margin layer (replaces legacy PDT — Alpaca deprecation 2026-06-04)
+
+Alpaca removed its legacy Pattern Day Trader protection, so this app does not
+(and never did) reject orders because of a day-trade count. Counts are tracked
+as analytics only. What protects the account instead:
+
+- `account_freshness` check: execution requires an account snapshot younger
+  than 5 minutes (buying power + equity fetched before every order via the
+  pre-execution risk re-run); stale or missing data blocks autonomous/live
+  execution and warns in manual/mock.
+- `intraday_margin` check: effective buying power is **min(cash, broker buying
+  power)** — a hard 1× cash cap in every mode, including when Alpaca offers
+  2–4× leverage. Maintenance margin (when reported) must leave a positive
+  cushion after the order. An intraday margin deficit is therefore impossible.
+- Margin borrowing and short selling remain disabled by default and cannot be
+  enabled through the app. Live-mode leverage would require a separate manual
+  safety review AND a code change.
+- The internal max-trades-per-day limits are risk management (turnover
+  control), not regulatory compliance, and remain configurable in Settings.
+- The daily learning report tracks same-day round trips and warns when
+  behavior resembles overtrading (≥5 intraday round trips/day).
+- Every acceptance/rejection continues to store its full 29-check risk
+  evaluation in `risk_evaluations` for audit.

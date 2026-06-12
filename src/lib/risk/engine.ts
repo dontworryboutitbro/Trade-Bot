@@ -334,6 +334,60 @@ const checkDrawdown: Check = (ctx) =>
       )
     : pass("drawdown", `Drawdown ${ctx.drawdownPct.toFixed(2)}% is within limits.`);
 
+/** Account snapshot older than this cannot back an execution decision. */
+const MAX_ACCOUNT_AGE_MS = 5 * 60 * 1000;
+
+const checkAccountFreshness: Check = (ctx) => {
+  const now = (ctx.now ?? new Date()).getTime();
+  const asOf = ctx.account.asOf ? new Date(ctx.account.asOf).getTime() : NaN;
+  const missing = Number.isNaN(asOf);
+  const stale = !missing && now - asOf > MAX_ACCOUNT_AGE_MS;
+  if (!missing && !stale) {
+    return pass("account_freshness", "Buying power and account data are fresh.");
+  }
+  const detail = missing
+    ? "Account snapshot has no timestamp — buying power cannot be verified."
+    : `Account snapshot is ${Math.round((now - asOf) / 1000)}s old (max ${MAX_ACCOUNT_AGE_MS / 1000}s).`;
+  return failsClosed(ctx.tradingMode)
+    ? fail("account_freshness", `${detail} Blocking in ${ctx.tradingMode} (fail-closed).`)
+    : pass("account_freshness", `WARNING: ${detail} Allowed in manual/mock mode; review required.`);
+};
+
+/**
+ * Intraday-margin safety layer (replaces legacy PDT logic, which Alpaca
+ * deprecated on 2026-06-04). Day-trade COUNT is analytics only and never a
+ * rejection reason; what matters is that no order can create an intraday
+ * margin deficit. Leverage is never used merely because Alpaca offers it:
+ * effective buying power is capped at 1× cash in every mode (live leverage
+ * would require a separate manual safety review and a code change).
+ */
+const checkIntradayMargin: Check = (ctx) => {
+  if (isSellSide(ctx.proposal.action))
+    return pass("intraday_margin", "Sell order frees buying power.");
+  const price = ctx.quote?.price ?? 0;
+  const cost = price * ctx.proposal.quantity;
+  const effectiveBuyingPower = Math.max(0, Math.min(ctx.account.cash, ctx.account.buyingPower));
+  if (cost > effectiveBuyingPower) {
+    return fail(
+      "intraday_margin",
+      `Order cost $${cost.toFixed(2)} exceeds 1× cash buying power $${effectiveBuyingPower.toFixed(2)} (margin borrowing is disabled; leverage is never used even when offered).`,
+    );
+  }
+  if (
+    ctx.account.maintenanceMargin != null &&
+    ctx.account.equity - ctx.account.maintenanceMargin - cost < 0
+  ) {
+    return fail(
+      "intraday_margin",
+      `Order would breach the maintenance-margin cushion: equity $${ctx.account.equity.toFixed(2)} − maintenance $${ctx.account.maintenanceMargin.toFixed(2)} leaves less than the $${cost.toFixed(2)} order cost.`,
+    );
+  }
+  return pass(
+    "intraday_margin",
+    `Cost $${cost.toFixed(2)} within 1× cash buying power; no intraday margin deficit possible.`,
+  );
+};
+
 const checkAccountRestrictions: Check = (ctx) => {
   if (ctx.account.accountBlocked) return fail("account_restrictions", "Brokerage account is blocked.");
   if (ctx.account.tradingBlocked)
@@ -456,6 +510,8 @@ const ALL_CHECKS: Check[] = [
   checkProposalNotExpired,
   checkNotDuplicate,
   checkCash,
+  checkAccountFreshness,
+  checkIntradayMargin,
   checkLiveFundedBalance,
   checkOrderSize,
   checkSymbolConcentration,
