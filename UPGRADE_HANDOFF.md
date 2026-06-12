@@ -136,3 +136,18 @@ APP_ENCRYPTION_KEY, APP_URL, optional DISCORD_WEBHOOK_URL/Resend.
 - README/SECURITY/UPGRADE_HANDOFF updated; stale "0004 pending"/"deploy pending"
   statements were already corrected in the deployment record above; test counts
   updated to 150/14.
+
+
+## Step 18 production verification (2026-06-12)
+
+- Migration 0005 applied via SQL Editor; all 10 learning tables verified present.
+- First production `learn-daily` run: ok=true. Regime SIDEWAYS_LOW_VOL; account
+  $100,122.51 equity; 4 proposals / 3 executed / 26 passive decisions today;
+  0 labeled samples yet (expected on day one — autonomous min confidence 55);
+  3 challengers generated into shadow mode (trend-pullback@2,
+  relative-momentum@2, mean-reversion@2).
+- First production `validate-weekly` run: ok=true. 5 baseline champions
+  recorded; challengers ranked (0 shadow trades yet — promotion correctly
+  reports requirements not met).
+- Crons scheduled in vercel.json: learn-daily 22:45 UTC weekdays,
+  validate-weekly Saturday 14:30 UTC.
