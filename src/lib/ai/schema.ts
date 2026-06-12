@@ -11,7 +11,7 @@ export const aiActionSchema = z
       .max(11)
       .toUpperCase()
       .regex(/^[A-Z]{1,6}(\/[A-Z]{3,4})?$/, "equity ticker or crypto pair like BTC/USD"),
-    action: z.enum(["BUY", "SELL", "REDUCE", "EXIT", "HOLD", "NO_ACTION"]),
+    action: z.enum(["BUY", "SELL", "REDUCE", "EXIT", "HOLD", "NO_ACTION", "NO_TRADE"]),
     quantity: z.number().min(0).finite(),
     proposed_notional: z.number().min(0).finite(),
     order_type: z.enum(["MARKET", "LIMIT"]),
@@ -21,6 +21,14 @@ export const aiActionSchema = z
     key_risk: z.string().min(1).max(250),
     /** Optional protective stop for BUY actions, % below entry. */
     stop_loss_pct: z.number().min(0.2).max(50).nullable().default(null),
+    /** Strategy this proposal belongs to; must be one of the provided strategy IDs. */
+    strategy_id: z.string().max(40).nullable().default(null),
+    /** Strongest argument AGAINST this trade. */
+    counterargument: z.string().max(300).nullable().default(null),
+    /** Observable condition that invalidates the thesis. */
+    invalidation_condition: z.string().max(200).nullable().default(null),
+    /** Intended holding period in trading days. */
+    intended_holding_days: z.number().int().min(1).max(90).nullable().default(null),
     expiration_timestamp: z.string().datetime({ offset: true }).or(z.string().datetime()),
   })
   .strict();

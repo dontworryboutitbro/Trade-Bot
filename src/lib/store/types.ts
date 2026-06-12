@@ -110,6 +110,29 @@ export interface HealthCheckRow {
   checkedAt: string;
 }
 
+export interface JournalEntryRow {
+  id: string;
+  environment: Environment;
+  proposalId: string | null;
+  orderId: string | null;
+  symbol: string;
+  side: "buy" | "sell";
+  quantity: number;
+  strategyId: string | null;
+  regime: string | null;
+  confidence: number | null;
+  thesis: string | null;
+  counterargument: string | null;
+  invalidationCondition: string | null;
+  quoteSnapshot: unknown;
+  costEstimate: unknown;
+  fillPrice: number | null;
+  dataQualityOk: boolean;
+  rulesFollowed: boolean;
+  lessons: string | null;
+  createdAt: string;
+}
+
 export interface NewProposalInput {
   environment: Environment;
   symbol: string;
@@ -124,6 +147,11 @@ export interface NewProposalInput {
   expiresAt: string;
   status: ProposalStatus;
   stopLossPct?: number | null;
+  strategyId?: string | null;
+  counterargument?: string | null;
+  invalidationCondition?: string | null;
+  intendedHoldingDays?: number | null;
+  regimeAtCreation?: string | null;
 }
 
 /**
@@ -189,6 +217,41 @@ export interface Store {
     symbol: string,
     side: "buy" | "sell",
   ): Promise<boolean>;
+
+  // paper-trade journal
+  createJournalEntry(entry: Omit<JournalEntryRow, "id" | "createdAt">): Promise<void>;
+  listJournalEntries(filter?: {
+    environment?: Environment;
+    strategyId?: string;
+    limit?: number;
+  }): Promise<JournalEntryRow[]>;
+
+  // backtests
+  saveBacktestRun(run: {
+    strategyId: string;
+    config: unknown;
+    startDate: string;
+    endDate: string;
+    metrics: unknown;
+    walkForward: unknown;
+    warnings: string[];
+  }): Promise<void>;
+  listBacktestRuns(limit?: number): Promise<
+    {
+      id: string;
+      strategyId: string;
+      startDate: string;
+      endDate: string;
+      metrics: unknown;
+      walkForward: unknown;
+      warnings: string[];
+      createdAt: string;
+    }[]
+  >;
+
+  // cross-market research history (optional capability)
+  saveCrossMarketSnapshot?(row: unknown & { key: string; midpoint: number | null }): Promise<void>;
+  listCrossMarketHistory?(key: string, days: number): Promise<number[]>;
 
   // stop rules
   createStopRule(rule: Omit<StopRule, "id" | "createdAt" | "status">): Promise<void>;

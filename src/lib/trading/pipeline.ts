@@ -8,6 +8,14 @@ import { BENCHMARK_SYMBOL, PROPOSAL_TTL_MINUTES } from "@/lib/config";
 import { getDecisionClient, type AiContext } from "@/lib/ai/client";
 import { getBrokerageClient, getMarketDataClient } from "@/lib/brokerage/factory";
 import { evaluateRisk, type RiskContext } from "@/lib/risk/engine";
+import { getQuoteSnapshot } from "@/lib/market-data/snapshots";
+import { assessQuote } from "@/lib/market-data/quality";
+import { estimateExecution } from "@/lib/execution/cost-model";
+import { planOrder } from "@/lib/execution/order-policy";
+import { activeCooldowns } from "@/lib/execution/cooldowns";
+import { classifyRegime, type RegimeReading } from "@/lib/regime/engine";
+import { getStrategy, STRATEGIES } from "@/lib/strategies/definitions";
+import type { Store as StoreType } from "@/lib/store/types";
 import { alert, audit } from "@/lib/services";
 import { getStore } from "@/lib/store";
 import type { Store, StoredProposal } from "@/lib/store/types";
@@ -30,6 +38,74 @@ function marketDayStartIso(now = new Date()): string {
     timeZone: "America/New_York",
   }).format(now); // YYYY-MM-DD
   return new Date(`${etDate}T00:00:00-05:00`).toISOString();
+}
+
+/** Derive deterministic cooldown inputs from stored history. */
+async function deriveCooldownReasons(
+  store: StoreType,
+  environment: Environment,
+  symbol: string,
+  side: "buy" | "sell",
+): Promise<string[]> {
+  const [orders, auditEvents] = await Promise.all([
+    store.listOrders({ environment, limit: 300 }),
+    store.listAuditEvents(200),
+  ]);
+  const symbolOrders = orders
+    .filter((o) => o.symbol === symbol)
+    .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+
+  const lastEntryAt =
+    [...symbolOrders].reverse().find((o) => o.side === "buy" && o.status !== "REJECTED" && o.status !== "FAILED")
+      ?.submittedAt ?? null;
+  const lastRejectionAt =
+    [...symbolOrders].reverse().find((o) => ["REJECTED", "FAILED"].includes(o.status))
+      ?.submittedAt ?? null;
+
+  // Loss exit: most recent filled sell whose price is below the average cost
+  // of the filled buys that preceded it.
+  let lastLossExitAt: string | null = null;
+  let costSum = 0;
+  let costQty = 0;
+  for (const order of symbolOrders) {
+    if (order.status !== "FILLED" || !order.filledAvgPrice) continue;
+    if (order.side === "buy") {
+      costSum += order.filledAvgPrice * order.filledQuantity;
+      costQty += order.filledQuantity;
+    } else if (costQty > 0) {
+      const avgCost = costSum / costQty;
+      if (order.filledAvgPrice < avgCost) lastLossExitAt = order.submittedAt;
+      costQty = Math.max(0, costQty - order.filledQuantity);
+      costSum = avgCost * costQty;
+    }
+  }
+
+  const lastKillSwitchResetAt =
+    auditEvents.find((e) => e.action === "KILL_SWITCH_RESET")?.createdAt ?? null;
+  const lastStaleDataIncidentAt =
+    auditEvents.find(
+      (e) => e.action === "DATA_QUALITY_INCIDENT" && e.entityId === symbol,
+    )?.createdAt ?? null;
+
+  return activeCooldowns({
+    symbol,
+    side,
+    now: new Date(),
+    lastEntryAt,
+    lastLossExitAt,
+    lastRejectionAt,
+    lastKillSwitchResetAt,
+    lastStaleDataIncidentAt,
+  });
+}
+
+async function getActiveRegime(mode: TradingMode): Promise<RegimeReading | null> {
+  try {
+    const bars = await getMarketDataClient(mode).getDailyBars(BENCHMARK_SYMBOL, 130);
+    return classifyRegime(bars);
+  } catch {
+    return null;
+  }
 }
 
 async function buildRiskContext(
@@ -72,6 +148,50 @@ async function buildRiskContext(
     : 0;
   const drawdownPct = peak > 0 ? Math.max(0, ((peak - account.equity) / peak) * 100) : 0;
 
+  // Quality layer: typed snapshot, cost estimate, cooldowns, regime eligibility.
+  const side = sideOf(proposal.action);
+  const quoteSnapshot = await getQuoteSnapshot(mode, proposal.symbol, marketClock.isOpen).catch(
+    () => null,
+  );
+  const costEstimate = quoteSnapshot
+    ? estimateExecution(quoteSnapshot, side, proposal.quantity)
+    : null;
+  const cooldownReasons = await deriveCooldownReasons(
+    store,
+    environment,
+    proposal.symbol,
+    side,
+  ).catch(() => []);
+
+  let regimeEligibility: RiskContext["regimeEligibility"] = null;
+  if (proposal.strategyId) {
+    const strategy = getStrategy(proposal.strategyId);
+    const reading = await getActiveRegime(mode);
+    if (strategy && reading) {
+      regimeEligibility = {
+        activeRegime: reading.regime,
+        approved: strategy.approvedRegimes.includes(reading.regime),
+      };
+    }
+  }
+
+  // Record stale-data incidents so cooldowns and analytics can see them.
+  const quality = assessQuote(quoteSnapshot ?? null);
+  if (!quality.ok && quoteSnapshot?.stale) {
+    await store
+      .createAuditEvent({
+        actorType: "SYSTEM",
+        actorId: null,
+        action: "DATA_QUALITY_INCIDENT",
+        entityType: "symbol",
+        entityId: proposal.symbol,
+        severity: "WARNING",
+        summary: `Stale/degraded quote for ${proposal.symbol}: ${quality.reasons.join(" ")}`,
+        metadata: {},
+      })
+      .catch(() => undefined);
+  }
+
   return {
     proposal,
     limits,
@@ -89,6 +209,10 @@ async function buildRiskContext(
     drawdownPct,
     hasEquivalentPendingOrder,
     proposalAlreadyExecuted,
+    quoteSnapshot,
+    costEstimate,
+    cooldownReasons,
+    regimeEligibility,
   };
 }
 
@@ -189,10 +313,13 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
     .filter((s) => s.active && s.assetClass === "crypto")
     .map((s) => s.symbol)
     .slice(0, 10);
+  // 90 daily bars: enough history for strategy signals (need ≥60).
+  const signalBars: Record<string, import("@/lib/types").Bar[]> = {};
   await Promise.all([
     ...barSymbols.map(async (symbol) => {
       try {
-        recentBars[symbol] = await marketData.getDailyBars(symbol, 30);
+        signalBars[symbol] = await marketData.getDailyBars(symbol, 90);
+        recentBars[symbol] = signalBars[symbol].slice(-30);
       } catch {
         recentBars[symbol] = [];
       }
@@ -206,6 +333,56 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
     }),
   ]);
 
+  // Research packet: regime, eligible strategies, mechanical signals,
+  // quote quality, cooldowns. All deterministic, no secrets, no raw text.
+  const regimeReading = await getActiveRegime(mode);
+  const eligibleStrategies = STRATEGIES.filter(
+    (s) => regimeReading && s.approvedRegimes.includes(regimeReading.regime),
+  ).map((s) => ({ id: s.id, name: s.name, entryCriteria: s.entryCriteria, sizePct: s.positionSizePct }));
+
+  const strategySignals: NonNullable<AiContext["strategySignals"]> = [];
+  for (const strategy of STRATEGIES) {
+    if (!strategy.signal) continue;
+    if (regimeReading && !strategy.approvedRegimes.includes(regimeReading.regime)) continue;
+    const universe =
+      strategy.universe === "ALL_ACTIVE_EQUITIES"
+        ? barSymbols.filter((s) => !s.includes("/"))
+        : strategy.universe.filter((s) => activeSymbols.includes(s));
+    for (const symbol of universe) {
+      const bars = signalBars[symbol];
+      if (!bars || bars.length < 60) continue;
+      const sig = strategy.signal(bars);
+      if (sig.enter || sig.evidenceFor.length > 0) {
+        strategySignals.push({
+          strategyId: strategy.id,
+          symbol,
+          enter: sig.enter,
+          evidenceFor: sig.evidenceFor.slice(0, 3),
+          evidenceAgainst: sig.evidenceAgainst.slice(0, 3),
+        });
+      }
+    }
+  }
+
+  const quoteQuality: NonNullable<AiContext["quoteQuality"]> = {};
+  const cooldownSymbols: string[] = [];
+  await Promise.all(
+    barSymbols.slice(0, 10).map(async (symbol) => {
+      const snap = await getQuoteSnapshot(mode, symbol, marketClock.isOpen).catch(() => null);
+      if (snap) {
+        quoteQuality[symbol] = {
+          spreadBps: snap.spreadBps,
+          quoteAgeMs: snap.quoteAgeMs,
+          ok: assessQuote(snap).ok,
+        };
+      }
+      const cooldowns = await deriveCooldownReasons(store, environment, symbol, "buy").catch(
+        () => [],
+      );
+      if (cooldowns.length > 0) cooldownSymbols.push(symbol);
+    }),
+  );
+
   const aiContext: AiContext = {
     mode,
     account,
@@ -218,6 +395,13 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
     hourlyBars,
     limits,
     marketClock,
+    regime: regimeReading
+      ? { regime: regimeReading.regime, rules: regimeReading.rules, metrics: regimeReading.metrics }
+      : null,
+    quoteQuality,
+    strategySignals: strategySignals.slice(0, 16),
+    eligibleStrategies,
+    cooldownSymbols,
   };
 
   let decision;
@@ -249,7 +433,7 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
 
   for (const action of decision.actions) {
     // HOLD / NO_ACTION: audit-log only, no visible proposal (keeps dashboard clean).
-    if (action.action === "HOLD" || action.action === "NO_ACTION") {
+    if (action.action === "HOLD" || action.action === "NO_ACTION" || action.action === "NO_TRADE") {
       await audit({
         actorType: "AI",
         actorId: null,
@@ -287,6 +471,13 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
       expiresAt,
       status: "PENDING_RISK",
       stopLossPct: action.action === "BUY" ? action.stop_loss_pct : null,
+      // Strategy attribution is validated against the known registry — an
+      // invented strategy_id degrades to null rather than being trusted.
+      strategyId: action.strategy_id && getStrategy(action.strategy_id) ? action.strategy_id : null,
+      counterargument: action.counterargument,
+      invalidationCondition: action.invalidation_condition,
+      intendedHoldingDays: action.intended_holding_days,
+      regimeAtCreation: regimeReading?.regime ?? null,
     });
     result.proposalsCreated++;
 
@@ -473,13 +664,18 @@ export async function executeProposal(
   }
 
   try {
+    // Order policy: prefer limit orders; never market into a wide spread.
+    const plan = ctx.quoteSnapshot
+      ? planOrder(proposal.orderType, proposal.limitPrice, side, ctx.quoteSnapshot)
+      : { type: proposal.orderType, limitPrice: proposal.limitPrice, policyNote: "No snapshot; AI order type retained." };
+
     const submitted = await brokerage.submitOrder({
       clientOrderId,
       symbol: proposal.symbol,
       side,
-      type: proposal.orderType,
+      type: plan.type,
       quantity: proposal.quantity,
-      limitPrice: proposal.limitPrice,
+      limitPrice: plan.limitPrice,
       timeInForce,
     });
 
@@ -490,10 +686,10 @@ export async function executeProposal(
       brokerageOrderId: submitted.brokerageOrderId,
       symbol: proposal.symbol,
       side,
-      orderType: proposal.orderType,
+      orderType: plan.type,
       quantity: proposal.quantity,
       notional: ctx.quote ? ctx.quote.price * proposal.quantity : null,
-      limitPrice: proposal.limitPrice,
+      limitPrice: plan.limitPrice,
       status: submitted.status,
       submittedAt: submitted.submittedAt,
       updatedAt: submitted.updatedAt,
@@ -504,6 +700,31 @@ export async function executeProposal(
 
     await store.updateProposalStatus(proposal.id, "EXECUTED");
     await maybeCreateStopRule(store, proposal, submitted.filledAvgPrice ?? ctx.quote?.price ?? null);
+
+    // Paper-trade journal entry: full decision context at execution time.
+    await store
+      .createJournalEntry({
+        environment: proposal.environment,
+        proposalId: proposal.id,
+        orderId: order.id,
+        symbol: proposal.symbol,
+        side,
+        quantity: proposal.quantity,
+        strategyId: proposal.strategyId ?? null,
+        regime: proposal.regimeAtCreation ?? null,
+        confidence: proposal.confidence,
+        thesis: proposal.conciseReasoning,
+        counterargument: proposal.counterargument ?? null,
+        invalidationCondition: proposal.invalidationCondition ?? null,
+        quoteSnapshot: ctx.quoteSnapshot ?? null,
+        costEstimate: ctx.costEstimate ?? null,
+        fillPrice: submitted.filledAvgPrice,
+        dataQualityOk: ctx.quoteSnapshot ? !ctx.quoteSnapshot.stale : false,
+        rulesFollowed: true,
+        lessons: null,
+      })
+      .catch(() => undefined);
+
     await audit({
       actorType: "SYSTEM",
       actorId: actor,

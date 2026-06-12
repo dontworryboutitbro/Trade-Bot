@@ -1,6 +1,7 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { getEnv } from "@/lib/env";
+import { assertSecureBoot } from "@/lib/env-guard";
 import { getStore } from "@/lib/store";
 import { alert, audit } from "@/lib/services";
 
@@ -16,6 +17,14 @@ export async function runCronJob(
   job: () => Promise<unknown>,
 ): Promise<NextResponse> {
   const env = getEnv();
+  try {
+    assertSecureBoot();
+  } catch {
+    return NextResponse.json(
+      { error: "Security validation failed; cron disabled." },
+      { status: 503 },
+    );
+  }
   const authHeader = request.headers.get("authorization");
   const provided = authHeader?.replace(/^Bearer\s+/i, "") ?? "";
   if (!env.CRON_SECRET || provided !== env.CRON_SECRET) {

@@ -10,7 +10,7 @@ export type TradingMode =
 
 export type Environment = "MOCK" | "PAPER" | "LIVE";
 
-export type TradeAction = "BUY" | "SELL" | "REDUCE" | "EXIT" | "HOLD" | "NO_ACTION";
+export type TradeAction = "BUY" | "SELL" | "REDUCE" | "EXIT" | "HOLD" | "NO_ACTION" | "NO_TRADE";
 
 export type OrderType = "MARKET" | "LIMIT";
 
@@ -157,6 +157,13 @@ export interface TradeProposal {
   createdAt: string;
   /** Optional protective stop for BUY proposals, as % below entry (0.2–50). */
   stopLossPct?: number | null;
+  /** Strategy attribution (Strategy Lab). */
+  strategyId?: string | null;
+  counterargument?: string | null;
+  invalidationCondition?: string | null;
+  intendedHoldingDays?: number | null;
+  /** Market regime active when the proposal was created. */
+  regimeAtCreation?: string | null;
 }
 
 export interface StopRule {

@@ -17,6 +17,7 @@ import type {
   AuditEventRow,
   CronRunRow,
   HealthCheckRow,
+  JournalEntryRow,
   NewProposalInput,
   NotificationRow,
   PortfolioSnapshotRow,
@@ -41,6 +42,18 @@ interface MemoryData {
   cronRuns: CronRunRow[];
   healthChecks: HealthCheckRow[];
   stopRules: StopRule[];
+  journal: JournalEntryRow[];
+  crossMarketHistory: { key: string; midpoint: number | null; capturedAt: string }[];
+  backtestRuns: {
+    id: string;
+    strategyId: string;
+    startDate: string;
+    endDate: string;
+    metrics: unknown;
+    walkForward: unknown;
+    warnings: string[];
+    createdAt: string;
+  }[];
 }
 
 function daysAgo(n: number, hour = 21): string {
@@ -316,6 +329,9 @@ function seedData(): MemoryData {
     cronRuns: [],
     healthChecks: [],
     stopRules: [],
+    journal: [],
+    crossMarketHistory: [],
+    backtestRuns: [],
   };
 }
 
@@ -484,6 +500,61 @@ export class MemoryStore implements Store {
         o.side === side &&
         ["NEW", "SUBMITTED", "ACCEPTED", "PARTIALLY_FILLED"].includes(o.status),
     );
+  }
+
+  async createJournalEntry(entry: Omit<JournalEntryRow, "id" | "createdAt">) {
+    data().journal.unshift({ id: randomUUID(), ...entry, createdAt: new Date().toISOString() });
+  }
+
+  async listJournalEntries(filter?: {
+    environment?: Environment;
+    strategyId?: string;
+    limit?: number;
+  }) {
+    let list = [...data().journal];
+    if (filter?.environment) list = list.filter((e) => e.environment === filter.environment);
+    if (filter?.strategyId) list = list.filter((e) => e.strategyId === filter.strategyId);
+    return list.slice(0, filter?.limit ?? 200).map((e) => ({ ...e }));
+  }
+
+  async saveBacktestRun(run: {
+    strategyId: string;
+    config: unknown;
+    startDate: string;
+    endDate: string;
+    metrics: unknown;
+    walkForward: unknown;
+    warnings: string[];
+  }) {
+    data().backtestRuns.unshift({
+      id: randomUUID(),
+      strategyId: run.strategyId,
+      startDate: run.startDate,
+      endDate: run.endDate,
+      metrics: run.metrics,
+      walkForward: run.walkForward,
+      warnings: run.warnings,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async listBacktestRuns(limit = 50) {
+    return data().backtestRuns.slice(0, limit).map((r) => ({ ...r }));
+  }
+
+  async saveCrossMarketSnapshot(row: { key: string; midpoint: number | null }) {
+    data().crossMarketHistory.push({
+      key: row.key,
+      midpoint: row.midpoint,
+      capturedAt: new Date().toISOString(),
+    });
+  }
+
+  async listCrossMarketHistory(key: string, days: number) {
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    return data()
+      .crossMarketHistory.filter((h) => h.key === key && h.capturedAt >= cutoff && h.midpoint !== null)
+      .map((h) => h.midpoint as number);
   }
 
   async createStopRule(rule: Omit<StopRule, "id" | "createdAt" | "status">) {
