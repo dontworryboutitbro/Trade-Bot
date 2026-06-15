@@ -119,6 +119,7 @@ export function TopBar({ initialMode }: { initialMode: TradingMode }) {
                 hour12: false,
                 hour: "2-digit",
                 minute: "2-digit",
+                timeZone: "America/Chicago",
               })}
             </span>
           )}

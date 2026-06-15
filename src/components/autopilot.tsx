@@ -105,7 +105,7 @@ export function Autopilot({ mode }: { mode: TradingMode }) {
       const now = new Date();
       setState((prev) => {
         const point: EquityPoint = {
-          time: now.toLocaleTimeString("en-US", { hour12: false }),
+          time: now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/Chicago" }),
           ts: now.getTime(),
           equity: data.equity,
         };
@@ -150,12 +150,12 @@ export function Autopilot({ mode }: { mode: TradingMode }) {
           try {
             const summary = await runJob("AI_EVALUATION");
             setLastAction(
-              `${new Date().toLocaleTimeString("en-US", { hour12: false })} — AI evaluation: ${summary.slice(0, 160)}`,
+              `${new Date().toLocaleTimeString("en-US", { hour12: false, timeZone: "America/Chicago" })} — AI evaluation: ${summary.slice(0, 160)}`,
             );
             router.refresh();
           } catch (e) {
             setLastAction(
-              `${new Date().toLocaleTimeString("en-US", { hour12: false })} — AI evaluation failed: ${e instanceof Error ? e.message.slice(0, 140) : "unknown"}`,
+              `${new Date().toLocaleTimeString("en-US", { hour12: false, timeZone: "America/Chicago" })} — AI evaluation failed: ${e instanceof Error ? e.message.slice(0, 140) : "unknown"}`,
             );
           }
         }
