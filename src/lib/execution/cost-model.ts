@@ -81,6 +81,7 @@ export function estimateExecution(
 export function assessExecutionCost(
   estimate: ExecutionEstimate | null,
   config: CostModelConfig = DEFAULT_COST_CONFIG,
+  options: { isCrypto?: boolean } = {},
 ): { ok: boolean; reasons: string[] } {
   if (!estimate) return { ok: false, reasons: ["Execution cost could not be estimated."] };
   const reasons: string[] = [];
@@ -89,12 +90,16 @@ export function assessExecutionCost(
       `Estimated execution cost ${estimate.totalEstimatedCostBps.toFixed(1)} bps exceeds the ${config.maxTotalCostBps} bps cap.`,
     );
   }
+  // Volume-participation impact cap. Alpaca's reported CRYPTO volume is venue-
+  // only (thin and unreliable), so the 1%-of-volume rule mis-fires on crypto;
+  // a looser 10% cap applies there. The cost-bps cap above still protects both.
+  const maxParticipation = options.isCrypto ? 0.1 : 0.01;
   if (
     estimate.participationOfDailyVolume !== null &&
-    estimate.participationOfDailyVolume > 0.01
+    estimate.participationOfDailyVolume > maxParticipation
   ) {
     reasons.push(
-      `Order is ${(estimate.participationOfDailyVolume * 100).toFixed(2)}% of daily volume (max 1%).`,
+      `Order is ${(estimate.participationOfDailyVolume * 100).toFixed(2)}% of daily volume (max ${(maxParticipation * 100).toFixed(0)}%).`,
     );
   }
   return { ok: reasons.length === 0, reasons };

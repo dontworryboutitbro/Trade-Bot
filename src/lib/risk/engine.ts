@@ -167,14 +167,21 @@ const checkShorting: Check = (ctx) => {
   return pass("no_shorting", `Selling ${ctx.proposal.quantity} of ${heldQty} held shares.`);
 };
 
+// Crypto on Alpaca's venue trades sparsely, so the last-TRADE timestamp lags
+// even though bid/ask quotes stay live. A 5-min equity rule wrongly blocks it;
+// crypto gets a longer last-trade window. The separate data_quality check still
+// enforces spread/liquidity on the live bid/ask snapshot.
+const CRYPTO_MAX_QUOTE_AGE_MS = 30 * 60 * 1000;
+
 const checkQuoteFresh: Check = (ctx) => {
   if (!ctx.quote) return fail("quote_fresh", "No quote available for symbol.");
   const now = (ctx.now ?? new Date()).getTime();
   const age = now - new Date(ctx.quote.asOf).getTime();
-  if (age > MAX_QUOTE_AGE_MS) {
+  const maxAge = isCrypto(ctx) ? CRYPTO_MAX_QUOTE_AGE_MS : MAX_QUOTE_AGE_MS;
+  if (age > maxAge) {
     return fail(
       "quote_fresh",
-      `Quote is ${Math.round(age / 1000)}s old (max ${MAX_QUOTE_AGE_MS / 1000}s).`,
+      `Quote is ${Math.round(age / 1000)}s old (max ${maxAge / 1000}s).`,
     );
   }
   if (ctx.quote.price <= 0) return fail("quote_fresh", "Quote price is not positive.");
@@ -451,7 +458,7 @@ const checkExecutionCost: Check = (ctx) => {
           "WARNING: no execution-cost estimate; allowed in manual/mock mode but requires review.",
         );
   }
-  const assessment = assessExecutionCost(ctx.costEstimate!);
+  const assessment = assessExecutionCost(ctx.costEstimate!, undefined, { isCrypto: isCrypto(ctx) });
   return assessment.ok
     ? pass(
         "execution_cost",
