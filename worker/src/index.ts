@@ -218,6 +218,26 @@ async function main(): Promise<void> {
     lastScanTrigger = Date.now();
   }, 5 * 60_000);
 
+  // Daily post-close tasks. Vercel's cron plan is unreliable for sub-daily jobs,
+  // so the worker is the dependable scheduler. After 21:00 UTC (post US close)
+  // each weekday, trigger snapshot → health → learn-daily ONCE. Every endpoint
+  // is idempotent per day, so this is safe even if Vercel also fires them.
+  let lastDailyTasksDate = "";
+  setInterval(() => {
+    void (async () => {
+      const now = new Date();
+      const utcDate = now.toISOString().slice(0, 10);
+      const utcDay = now.getUTCDay(); // 0 Sun … 6 Sat
+      const weekday = utcDay >= 1 && utcDay <= 5;
+      if (!weekday || now.getUTCHours() < 21 || lastDailyTasksDate === utcDate) return;
+      lastDailyTasksDate = utcDate;
+      log("running daily post-close tasks (snapshot → health → learn-daily)");
+      await triggerCron("/api/cron/snapshot");
+      await triggerCron("/api/cron/health");
+      await triggerCron("/api/cron/learn-daily");
+    })();
+  }, 5 * 60_000);
+
   // REST fallback probe every 30s when a stream is down.
   setInterval(() => void restFallbackProbe(), 30_000);
 
