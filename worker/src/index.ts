@@ -238,19 +238,15 @@ async function main(): Promise<void> {
     })();
   }, 5 * 60_000);
 
-  // Intraday AI evaluations during US market hours (13:30–20:00 UTC, Mon–Fri),
-  // every 30 minutes — so the bot trades and accumulates learning samples even
-  // when no dashboard tab is open. Spend stays bounded by the daily AI-call
-  // budget + actionable preflight + per-day trade caps inside the pipeline.
-  setInterval(() => {
-    void (async () => {
-      const now = new Date();
-      const day = now.getUTCDay();
-      const minutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-      const marketHours = day >= 1 && day <= 5 && minutes >= 13 * 60 + 30 && minutes <= 20 * 60;
-      if (marketHours) await triggerCron("/api/cron/evaluate");
-    })();
-  }, 30 * 60_000);
+  // AI evaluations around the clock (every 30 min) — crypto trades 24/7, and
+  // during US market hours equities are evaluated too. The bot accumulates
+  // learning samples even with no dashboard tab open. Spend stays bounded by
+  // the daily AI-call budget + actionable preflight (skips when nothing is
+  // tradable) + per-day trade caps inside the pipeline.
+  // Hourly = 24 evals/day, matching the default daily AI-call budget so coverage
+  // is spread evenly across 24h rather than front-loaded. Raise AI_DAILY_BUDGET
+  // (and lower this interval) for more frequent checks.
+  setInterval(() => void triggerCron("/api/cron/evaluate"), 60 * 60_000);
 
   // REST fallback probe every 30s when a stream is down.
   setInterval(() => void restFallbackProbe(), 30_000);

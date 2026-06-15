@@ -409,18 +409,28 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
   const rankedCandidates = (await getTopCandidates())
     .map((c) => c.symbol)
     .filter((s) => activeSymbols.includes(s));
-  const candidatePool = rankedCandidates.length > 0 ? rankedCandidates : activeSymbols.slice(0, 8);
+  // Active crypto pairs (24/7). Always include some so the bot can trade crypto
+  // when the equity market is closed — without them the preflight would skip
+  // after hours. The risk engine still gates every crypto order.
+  const cryptoSymbols = approvedSymbols
+    .filter((s) => s.active && s.assetClass === "crypto")
+    .map((s) => s.symbol)
+    .slice(0, 6);
+  const equityCandidates =
+    rankedCandidates.length > 0
+      ? rankedCandidates.filter((s) => !s.includes("/"))
+      : activeSymbols.filter((s) => !s.includes("/")).slice(0, 8);
+  // When equities are closed, lead with crypto so it dominates the small pool.
+  const candidatePool = marketClock.isOpen
+    ? Array.from(new Set([...equityCandidates, ...cryptoSymbols]))
+    : Array.from(new Set([...cryptoSymbols, ...equityCandidates]));
   const barSymbols = Array.from(
     new Set([
       BENCHMARK_SYMBOL,
       ...positions.map((p) => p.symbol),
       ...candidatePool,
     ]),
-  ).slice(0, 14);
-  const cryptoSymbols = approvedSymbols
-    .filter((s) => s.active && s.assetClass === "crypto")
-    .map((s) => s.symbol)
-    .slice(0, 10);
+  ).slice(0, 16);
   // 90 daily bars: enough history for strategy signals (need ≥60).
   const signalBars: Record<string, import("@/lib/types").Bar[]> = {};
   await Promise.all([
