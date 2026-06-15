@@ -26,6 +26,7 @@ export default async function OverviewPage() {
 
   // AI Research Engine panel data (best-effort; renders without it).
   const store = await getStore();
+  const activeLimits = await store.getRiskLimits(data.environment);
   let learner: { date?: string; regime?: string; proposals?: number; noTrade?: number; calibration?: string } = {};
   let champions = 0;
   let challengers = 0;
@@ -123,7 +124,7 @@ export default async function OverviewPage() {
         </div>
       </div>
 
-      <Autopilot mode={settings.tradingMode} />
+      <Autopilot mode={settings.tradingMode} maxTradesPerDay={activeLimits.maxTradesPerDay} />
 
       {data.pendingProposals.length > 0 && (
         <Card title="Awaiting your approval" glow="accent">

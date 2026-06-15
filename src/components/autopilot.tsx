@@ -61,7 +61,13 @@ function loadPersisted(): Persisted {
   }
 }
 
-export function Autopilot({ mode }: { mode: TradingMode }) {
+export function Autopilot({
+  mode,
+  maxTradesPerDay = 3,
+}: {
+  mode: TradingMode;
+  maxTradesPerDay?: number;
+}) {
   // Server and first client render must match: start from the static fallback
   // and hydrate persisted session state after mount.
   const [state, setState] = useState<Persisted>(FALLBACK);
@@ -309,7 +315,8 @@ export function Autopilot({ mode }: { mode: TradingMode }) {
         {error && <p className="mt-2 text-xs text-critical">{error}</p>}
         <p className="mt-2 text-xs text-faint">
           Autopilot runs while this page is open. Every trade still passes the full risk engine
-          (max 3 trades/day, market hours only). The kill switch stops everything instantly.
+          (max {maxTradesPerDay} equity trades/day, market hours only). The kill switch stops
+          everything instantly.
         </p>
       </div>
     </section>
