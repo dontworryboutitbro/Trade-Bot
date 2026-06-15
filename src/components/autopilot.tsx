@@ -41,7 +41,7 @@ interface Persisted {
 
 const FALLBACK: Persisted = {
   enabled: false,
-  evalMinutes: 30,
+  evalMinutes: 60, // gentler default while learning; the server budget caps spend regardless
   points: [],
   lastEvalAt: 0,
   day: "",
@@ -207,9 +207,11 @@ export function Autopilot({ mode }: { mode: TradingMode }) {
             className="rounded border border-edge-strong bg-raised px-2 py-1 text-xs"
             title="How often the AI reviews the portfolio while autopilot is on"
           >
-            <option value={15}>AI check every 15 min</option>
-            <option value={30}>AI check every 30 min</option>
             <option value={60}>AI check every 60 min</option>
+            <option value={120}>AI check every 2 hours</option>
+            <option value={240}>AI check every 4 hours</option>
+            <option value={30}>AI check every 30 min</option>
+            <option value={15}>AI check every 15 min</option>
           </select>
           <button
             onClick={() => setState((p) => ({ ...p, enabled: !p.enabled, lastEvalAt: 0 }))}
@@ -250,6 +252,11 @@ export function Autopilot({ mode }: { mode: TradingMode }) {
             </span>
           )}
         </div>
+        <p className="mb-3 text-[11px] text-faint">
+          Cost-saving: a daily AI-call budget caps Anthropic spend, and checks are skipped
+          automatically when no trade is possible (market closed, no candidates, or the daily
+          limit is reached). The learning engine is always free.
+        </p>
 
         {state.points.length < 2 ? (
           <p className="py-8 text-center text-sm text-faint">

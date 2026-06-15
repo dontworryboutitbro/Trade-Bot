@@ -362,6 +362,28 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
     return result;
   }
 
+  // Cost control (stage 1): daily Claude-call budget. MOCK is free and exempt.
+  // This is the hard cap that stops the autopilot loop from draining the balance
+  // while the system is learning. Skipping costs nothing.
+  if (mode !== "MOCK") {
+    const { getBudgetState } = await import("@/lib/ai/budget");
+    const budgetState = await getBudgetState(store, mode);
+    if (budgetState.remaining <= 0) {
+      await audit({
+        actorType: "SYSTEM",
+        actorId: triggeredBy,
+        action: "AI_EVALUATION_SKIPPED",
+        entityType: null,
+        entityId: null,
+        severity: "INFO",
+        summary: `AI evaluation skipped: daily budget reached (${budgetState.used}/${budgetState.budget} calls used today). Raise AI_DAILY_BUDGET to allow more.`,
+        metadata: budgetState,
+      });
+      result.errors.push(`Daily AI budget reached (${budgetState.used}/${budgetState.budget}).`);
+      return result;
+    }
+  }
+
   const brokerage = getBrokerageClient(mode);
   const marketData = getMarketDataClient(mode);
   const approvedSymbols = await store.getApprovedSymbols();
@@ -489,6 +511,41 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
     eligibleStrategies,
     cooldownSymbols,
   };
+
+  // Cost control (stage 2): skip the Claude call when no trade is possible.
+  // Free for MOCK (mock client). Skipping is strictly safer than calling.
+  if (mode !== "MOCK") {
+    const [equityTradesToday, cryptoTradesToday] = await Promise.all([
+      store.countExecutedTradesToday(environment, marketDayStartIso(), "equity"),
+      store.countExecutedTradesToday(environment, marketDayStartIso(), "crypto"),
+    ]);
+    const { actionablePreflight, recordAiInvocation } = await import("@/lib/ai/budget");
+    const skipReason = actionablePreflight({
+      mode,
+      marketClock,
+      limits,
+      activeSymbols,
+      candidatePool,
+      positionSymbols: positions.map((p) => p.symbol),
+      equityTradesToday,
+      cryptoTradesToday,
+    });
+    if (skipReason) {
+      await audit({
+        actorType: "SYSTEM",
+        actorId: triggeredBy,
+        action: "AI_EVALUATION_SKIPPED",
+        entityType: null,
+        entityId: null,
+        severity: "INFO",
+        summary: skipReason,
+        metadata: {},
+      });
+      return result;
+    }
+    // Past both gates → this WILL call Claude; count it against the daily budget.
+    await recordAiInvocation(store, triggeredBy);
+  }
 
   let decision;
   try {

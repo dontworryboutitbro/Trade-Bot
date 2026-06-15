@@ -239,7 +239,9 @@ export class AnthropicDecisionClient implements AiDecisionClient {
 
     const response = await anthropic.messages.create({
       model,
-      max_tokens: 2000,
+      // Capped output: concise JSON only. Lower max_tokens = lower cost; the
+      // candidate set is already small so 1200 is ample.
+      max_tokens: 1200,
       system: [
         {
           type: "text",
