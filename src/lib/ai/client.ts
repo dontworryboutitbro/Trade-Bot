@@ -244,9 +244,11 @@ export class AnthropicDecisionClient implements AiDecisionClient {
 
     const response = await anthropic.messages.create({
       model,
-      // Capped output: concise JSON only. Lower max_tokens = lower cost; the
-      // candidate set is already small so 1200 is ample.
-      max_tokens: 1200,
+      // Enough headroom for a full multi-action JSON response (reasoning +
+      // counterargument + invalidation per action). 1200 truncated active-
+      // management replies mid-JSON; 3000 fits ~8–10 actions. Output tokens are
+      // cheap on the paper-phase model, so this is a safe ceiling.
+      max_tokens: 3000,
       system: [
         {
           type: "text",
