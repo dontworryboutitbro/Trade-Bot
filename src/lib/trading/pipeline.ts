@@ -519,7 +519,7 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
       store.countExecutedTradesToday(environment, marketDayStartIso(), "equity"),
       store.countExecutedTradesToday(environment, marketDayStartIso(), "crypto"),
     ]);
-    const { actionablePreflight, recordAiInvocation } = await import("@/lib/ai/budget");
+    const { actionablePreflight } = await import("@/lib/ai/budget");
     const skipReason = actionablePreflight({
       mode,
       marketClock,
@@ -543,13 +543,17 @@ export async function runAiEvaluation(triggeredBy: string): Promise<EvaluationRe
       });
       return result;
     }
-    // Past both gates → this WILL call Claude; count it against the daily budget.
-    await recordAiInvocation(store, triggeredBy);
   }
 
   let decision;
   try {
     decision = await getDecisionClient(mode).evaluate(aiContext);
+    // Count only SUCCESSFUL (billed) calls against the daily budget — a 404/400
+    // error costs nothing and must not consume the day's allowance. MOCK is free.
+    if (mode !== "MOCK") {
+      const { recordAiInvocation } = await import("@/lib/ai/budget");
+      await recordAiInvocation(store, triggeredBy);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown AI error";
     result.errors.push(message);
