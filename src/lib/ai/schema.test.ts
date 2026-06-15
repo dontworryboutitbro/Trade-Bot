@@ -30,6 +30,14 @@ describe("AI response validation", () => {
     expect(decision.actions).toHaveLength(1);
   });
 
+  it("accepts JSON wrapped in prose (smaller models add commentary)", () => {
+    const wrapped =
+      "Here is my analysis for today:\n\n" + JSON.stringify(valid) + "\n\nLet me know if you need more.";
+    const decision = parseAiDecision(wrapped);
+    expect(decision.actions).toHaveLength(1);
+    expect(decision.actions[0].symbol).toBe("SPY");
+  });
+
   it("rejects non-JSON output", () => {
     expect(() => parseAiDecision("I think you should buy SPY")).toThrow("not valid JSON");
   });

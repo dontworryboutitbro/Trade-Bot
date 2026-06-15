@@ -269,14 +269,29 @@ export class AnthropicDecisionClient implements AiDecisionClient {
 
 /** Parse + strictly validate AI output. Throws on anything malformed. */
 export function parseAiDecision(text: string): AiDecision {
-  // Tolerate accidental markdown fencing, nothing else.
-  const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  // Strip markdown fences, then extract the outermost JSON object so a model
+  // that adds a sentence of prose around the JSON (common with smaller models)
+  // still parses. The extracted text is still strictly schema-validated — this
+  // tolerates wrapping, never invalid content.
+  const cleaned = text.replace(/```(?:json)?/gi, "").trim();
+  const candidates: string[] = [cleaned];
+  const first = cleaned.indexOf("{");
+  const last = cleaned.lastIndexOf("}");
+  if (first !== -1 && last > first) candidates.push(cleaned.slice(first, last + 1));
+
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    throw new Error("AI response was not valid JSON");
+  let parsedOk = false;
+  for (const candidate of candidates) {
+    try {
+      parsed = JSON.parse(candidate);
+      parsedOk = true;
+      break;
+    } catch {
+      // try the next candidate
+    }
   }
+  if (!parsedOk) throw new Error("AI response was not valid JSON");
+
   const result = aiDecisionSchema.safeParse(parsed);
   if (!result.success) {
     throw new Error(`AI response failed schema validation: ${result.error.message.slice(0, 500)}`);
